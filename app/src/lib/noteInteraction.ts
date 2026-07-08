@@ -3,6 +3,8 @@ import type { OpenSheetMusicDisplay } from "opensheetmusicdisplay";
 
 interface ClickableGraphicalNote {
   sourceNote: { isRest(): boolean };
+  /** Chỉ số của nốt này trong hợp âm (VexFlow StaveNote dùng chung 1 nhóm SVG cho cả hợp âm). */
+  vfnoteIndex: number;
   getNoteheadSVGs?: () => SVGGraphicsElement[];
 }
 
@@ -30,12 +32,13 @@ export function attachNoteClickHandlers(osmd: OpenSheetMusicDisplay, onNoteClick
       for (const note of voiceEntry.Notes) {
         if (note.isRest()) continue;
         const graphicalNote = rules.GNote(note) as unknown as ClickableGraphicalNote | undefined;
-        const noteheadEls = graphicalNote?.getNoteheadSVGs?.();
-        if (!noteheadEls) continue;
-        for (const el of noteheadEls) {
-          el.style.cursor = "pointer";
-          el.addEventListener("click", () => onNoteClick(timestamp));
-        }
+        // getNoteheadSVGs() trả về TẤT CẢ notehead của cả hợp âm dùng chung StaveNote - phải lấy
+        // đúng phần tử ở vfnoteIndex, không thì mỗi nốt trong hợp âm sẽ gắn listener trùng lặp lên
+        // cả các notehead khác (dù không sai chức năng ở đây vì cùng timestamp, nhưng thừa và dễ lỗi).
+        const el = graphicalNote?.getNoteheadSVGs?.()?.[graphicalNote.vfnoteIndex];
+        if (!el) continue;
+        el.style.cursor = "pointer";
+        el.addEventListener("click", () => onNoteClick(timestamp));
       }
     }
     iterator.moveToNext();

@@ -21,6 +21,8 @@ interface NoteheadCapable {
     TransposedPitch?: Pitch;
     NoteTypeXml: NoteType;
   };
+  /** Chỉ số của nốt này trong hợp âm (VexFlow StaveNote dùng chung 1 nhóm SVG cho cả hợp âm). */
+  vfnoteIndex: number;
   getNoteheadSVGs?: () => SVGGraphicsElement[];
 }
 
@@ -63,33 +65,36 @@ function appendLabelForNote(group: SVGGElement, graphicalNote: NoteheadCapable):
   const pitch = sourceNote.TransposedPitch ?? sourceNote.Pitch;
   if (!pitch) return;
 
+  // Với hợp âm (nhiều nốt cùng 1 staffEntry), VexFlow vẽ chung 1 nhóm SVG cho cả StaveNote -
+  // getNoteheadSVGs() trả về TẤT CẢ notehead của cả hợp âm cho mỗi GraphicalNote, không chỉ
+  // notehead riêng của nó. Phải lấy đúng phần tử ở vị trí vfnoteIndex, nếu không toàn bộ hợp âm
+  // sẽ bị dán cùng 1 tên nốt (đè lên nhau) thay vì tên đúng của từng nốt.
   const noteheadEls = graphicalNote.getNoteheadSVGs?.();
-  if (!noteheadEls || noteheadEls.length === 0) return;
+  const el = noteheadEls?.[graphicalNote.vfnoteIndex];
+  if (!el) return;
 
   const isOpenNotehead = sourceNote.NoteTypeXml >= NoteType.HALF;
   const letter = Pitch.getNoteEnumString(pitch.FundamentalNote);
   const fill = isOpenNotehead ? OPEN_NOTEHEAD_TEXT_COLOR : FILLED_NOTEHEAD_TEXT_COLOR;
   const halo = isOpenNotehead ? OPEN_NOTEHEAD_HALO_COLOR : FILLED_NOTEHEAD_HALO_COLOR;
 
-  for (const el of noteheadEls) {
-    const bbox = el.getBBox?.();
-    if (!bbox || bbox.width === 0 || bbox.height === 0) continue;
+  const bbox = el.getBBox?.();
+  if (!bbox || bbox.width === 0 || bbox.height === 0) return;
 
-    const fontSize = Math.max(bbox.height * 0.85, 4.5);
-    const text = document.createElementNS(SVG_NS, "text");
-    text.setAttribute("x", String(bbox.x + bbox.width / 2));
-    text.setAttribute("y", String(bbox.y + bbox.height / 2));
-    text.setAttribute("text-anchor", "middle");
-    text.setAttribute("dominant-baseline", "central");
-    text.setAttribute("font-size", String(fontSize));
-    text.setAttribute("font-family", "sans-serif");
-    text.setAttribute("font-weight", "700");
-    text.setAttribute("fill", fill);
-    text.setAttribute("stroke", halo);
-    text.setAttribute("stroke-width", String(fontSize * 0.22));
-    text.setAttribute("stroke-linejoin", "round");
-    text.setAttribute("paint-order", "stroke fill");
-    text.textContent = letter;
-    group.appendChild(text);
-  }
+  const fontSize = Math.max(bbox.height * 0.85, 4.5);
+  const text = document.createElementNS(SVG_NS, "text");
+  text.setAttribute("x", String(bbox.x + bbox.width / 2));
+  text.setAttribute("y", String(bbox.y + bbox.height / 2));
+  text.setAttribute("text-anchor", "middle");
+  text.setAttribute("dominant-baseline", "central");
+  text.setAttribute("font-size", String(fontSize));
+  text.setAttribute("font-family", "sans-serif");
+  text.setAttribute("font-weight", "700");
+  text.setAttribute("fill", fill);
+  text.setAttribute("stroke", halo);
+  text.setAttribute("stroke-width", String(fontSize * 0.22));
+  text.setAttribute("stroke-linejoin", "round");
+  text.setAttribute("paint-order", "stroke fill");
+  text.textContent = letter;
+  group.appendChild(text);
 }
