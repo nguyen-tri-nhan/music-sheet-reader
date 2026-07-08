@@ -9,6 +9,8 @@ export interface OsmdNoteLike {
     Pitch: Pitch;
     TransposedPitch?: Pitch;
     NoteTypeXml: NoteType;
+    /** Staff (khuông nhạc) chứa nốt này - dùng để lọc theo tay trái/phải (bass/treble). */
+    ParentStaffEntry?: { ParentStaff?: { Id: number } };
   };
   /** Chỉ số của nốt này trong hợp âm (VexFlow StaveNote dùng chung 1 nhóm SVG cho cả hợp âm). */
   vfnoteIndex: number;

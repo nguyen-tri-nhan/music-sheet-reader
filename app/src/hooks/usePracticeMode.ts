@@ -6,23 +6,33 @@ import { midiNoteToFrequency, matchPlayedNotes } from "../lib/practiceMatcher";
 import { showNoteFeedback, clearNoteFeedback } from "../lib/noteFeedback";
 import { createPianoSampler } from "../lib/pianoSampler";
 import type { OsmdNoteLike } from "../lib/graphicalNoteTypes";
+import type { StaffRoles } from "../lib/staffRoles";
 
 /** Gom các Note On đến trong cửa sổ này thành 1 "lần đánh" trước khi so khớp - đủ để chờ đánh
  * đầy đủ 1 hợp âm, cũng tự nhiên đóng vai trò bộ đệm chống báo sai giả (xem specs/keyboard.md). */
 const COLLECTION_WINDOW_MS = 220;
 /** Thời gian hiện chớp xanh lá trước khi thực sự chuyển cursor sang nốt tiếp theo. */
 const CORRECT_DISPLAY_MS = 250;
+/** Độ trễ giữa mỗi bước tự động bỏ qua vị trí không có nốt của tay đang chọn - vẫn hiện cursor
+ * trôi qua để người học cảm nhận được nhịp của cả bài, không nhảy thẳng tức thì. */
+const SKIP_STEP_DELAY_MS = 220;
+
+export type PracticeHand = "both" | "left" | "right";
 
 interface UsePracticeModeOptions {
   osmdRef: React.RefObject<OpenSheetMusicDisplay | null>;
   containerRef: React.RefObject<HTMLElement | null>;
   enabled: boolean;
+  staffRoles: StaffRoles | null;
 }
 
-export function usePracticeMode({ osmdRef, containerRef, enabled }: UsePracticeModeOptions) {
+export function usePracticeMode({ osmdRef, containerRef, enabled, staffRoles }: UsePracticeModeOptions) {
   const bufferRef = useRef<Set<number>>(new Set());
   const collectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const advanceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const skipTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const [practiceHand, setPracticeHandState] = useState<PracticeHand>("both");
 
   // Phát âm thanh piano qua loa máy tính khi bấm phím đàn MIDI - hữu ích cho đàn MIDI-only
   // (controller) không có loa riêng. Tắt mặc định vì nhiều đàn digital piano đã tự phát âm thanh
@@ -61,8 +71,41 @@ export function usePracticeMode({ osmdRef, containerRef, enabled }: UsePracticeM
     const osmd = osmdRef.current;
     if (!osmd?.Sheet) return [];
     const gnotes = osmd.cursor.GNotesUnderCursor() as unknown as OsmdNoteLike[];
-    return gnotes.filter((gn) => gn.sourceNote && !gn.sourceNote.isRest());
-  }, [osmdRef]);
+    let notes = gnotes.filter((gn) => gn.sourceNote && !gn.sourceNote.isRest());
+
+    if (practiceHand !== "both" && staffRoles && !staffRoles.singleStaff) {
+      const targetStaffId = practiceHand === "left" ? staffRoles.bassStaffId : staffRoles.trebleStaffId;
+      notes = notes.filter((gn) => gn.sourceNote.ParentStaffEntry?.ParentStaff?.Id === targetStaffId);
+    }
+    return notes;
+  }, [osmdRef, practiceHand, staffRoles]);
+
+  /** Tay đang chọn không có nốt nào ở vị trí hiện tại (tay kia đang chơi) - tự động cho cursor
+   * chạy qua (có độ trễ để vẫn cảm nhận được nhịp) tới khi tìm được vị trí có nốt của tay đó,
+   * hoặc hết bài. Gọi sau: bật Practice Mode, đổi tay, sau khi advance tới nốt tiếp theo, và sau
+   * khi bấm chọn 1 nốt (click-to-seek) - luôn đảm bảo cursor dừng đúng ở nơi có gì để so khớp. */
+  const advanceUntilHandHasNotes = useCallback(() => {
+    if (skipTimerRef.current) clearTimeout(skipTimerRef.current);
+    if (practiceHand === "both" || !staffRoles || staffRoles.singleStaff) return;
+    const osmd = osmdRef.current;
+    if (!osmd?.Sheet) return;
+
+    const step = () => {
+      if (getExpectedNotes().length > 0) return;
+      if (osmd.cursor.iterator.EndReached) return;
+      osmd.cursor.next();
+      osmd.cursor.show();
+      skipTimerRef.current = setTimeout(step, SKIP_STEP_DELAY_MS);
+    };
+    step();
+  }, [osmdRef, practiceHand, staffRoles, getExpectedNotes]);
+
+  const setPracticeHand = useCallback(
+    (value: PracticeHand) => {
+      setPracticeHandState(value);
+    },
+    [],
+  );
 
   const expectedFrequenciesOf = useCallback((notes: OsmdNoteLike[]): number[] => {
     return notes
@@ -89,11 +132,12 @@ export function usePracticeMode({ osmdRef, containerRef, enabled }: UsePracticeM
         clearNoteFeedback(container);
         osmd.cursor.next();
         osmd.cursor.show();
+        advanceUntilHandHasNotes();
       }, CORRECT_DISPLAY_MS);
     } else {
       showNoteFeedback(container, expectedNotes, "incorrect");
     }
-  }, [osmdRef, containerRef, getExpectedNotes, expectedFrequenciesOf]);
+  }, [osmdRef, containerRef, getExpectedNotes, expectedFrequenciesOf, advanceUntilHandHasNotes]);
 
   const handleNoteOn = useCallback(
     (noteNumber: number, velocity: number) => {
@@ -155,20 +199,32 @@ export function usePracticeMode({ osmdRef, containerRef, enabled }: UsePracticeM
     bufferRef.current.clear();
     const container = containerRef.current;
     if (container) clearNoteFeedback(container);
-  }, [containerRef]);
+    // Chạy sau khi tick hiện tại (gồm cả seekTo di chuyển cursor) hoàn tất, để kiểm tra đúng vị trí
+    // MỚI - nếu tay đang chọn không có nốt nào ngay tại đó, tự động chạy tiếp tới vị trí có nốt.
+    setTimeout(() => advanceUntilHandHasNotes(), 0);
+  }, [containerRef, advanceUntilHandHasNotes]);
 
   // Tắt Practice Mode: dọn dẹp timer + feedback đang hiện, không để sót lại giữa chừng.
   useEffect(() => {
     if (enabled) return;
+    if (skipTimerRef.current) clearTimeout(skipTimerRef.current);
     resetForManualSeek();
     sustainPedalDownRef.current = false;
     sustainingNotesRef.current.clear();
   }, [enabled, resetForManualSeek]);
 
+  // Bật Practice Mode hoặc đổi tay đang luyện tập: đảm bảo cursor đang đứng ở vị trí có nốt của
+  // tay đó, nếu không thì tự động chạy tiếp (xem specs/keyboard.md).
+  useEffect(() => {
+    if (!enabled) return;
+    advanceUntilHandHasNotes();
+  }, [enabled, practiceHand, advanceUntilHandHasNotes]);
+
   useEffect(() => {
     return () => {
       if (collectTimerRef.current) clearTimeout(collectTimerRef.current);
       if (advanceTimerRef.current) clearTimeout(advanceTimerRef.current);
+      if (skipTimerRef.current) clearTimeout(skipTimerRef.current);
       midiSamplerRef.current?.dispose();
     };
   }, []);
@@ -181,5 +237,7 @@ export function usePracticeMode({ osmdRef, containerRef, enabled }: UsePracticeM
     resetForManualSeek,
     playMidiAudio,
     setPlayMidiAudio,
+    practiceHand,
+    setPracticeHand,
   };
 }

@@ -1,4 +1,5 @@
 import type { MidiConnectionStatus } from "../hooks/useMidiInput";
+import type { PracticeHand } from "../hooks/usePracticeMode";
 
 interface PracticeModeControlsProps {
   enabled: boolean;
@@ -8,10 +9,13 @@ interface PracticeModeControlsProps {
   onConnectMidi: () => void;
   playMidiAudio: boolean;
   onPlayMidiAudioChange: (value: boolean) => void;
+  practiceHand: PracticeHand;
+  onPracticeHandChange: (value: PracticeHand) => void;
+  canSelectHand: boolean;
   disabled: boolean;
 }
 
-const STATUS_LABEL: Record<MidiConnectionStatus, string> = {
+const STATUS_TOOLTIP: Record<MidiConnectionStatus, string> = {
   unsupported: "Trình duyệt không hỗ trợ Web MIDI (dùng Chrome/Edge)",
   idle: "Chưa kết nối đàn MIDI",
   requesting: "Đang xin quyền truy cập MIDI…",
@@ -19,6 +23,12 @@ const STATUS_LABEL: Record<MidiConnectionStatus, string> = {
   denied: "Không xin được quyền truy cập MIDI",
   error: "Lỗi kết nối MIDI",
 };
+
+const HAND_OPTIONS: { value: PracticeHand; label: string }[] = [
+  { value: "both", label: "Cả 2 tay" },
+  { value: "left", label: "Tay trái" },
+  { value: "right", label: "Tay phải" },
+];
 
 export function PracticeModeControls({
   enabled,
@@ -28,8 +38,13 @@ export function PracticeModeControls({
   onConnectMidi,
   playMidiAudio,
   onPlayMidiAudioChange,
+  practiceHand,
+  onPracticeHandChange,
+  canSelectHand,
   disabled,
 }: PracticeModeControlsProps) {
+  const isConnected = midiStatus === "connected";
+
   return (
     <div className="practice-controls">
       <label className="player-controls__toggle">
@@ -39,24 +54,38 @@ export function PracticeModeControls({
 
       {enabled && (
         <div className="practice-controls__status">
-          <span className={`practice-controls__badge practice-controls__badge--${midiStatus}`}>
-            {STATUS_LABEL[midiStatus]}
-          </span>
-          {midiStatus !== "unsupported" && midiStatus !== "connected" && (
+          <span
+            className={`practice-controls__dot practice-controls__dot--${isConnected ? "on" : "off"}`}
+            title={midiError ?? STATUS_TOOLTIP[midiStatus]}
+          />
+          {!isConnected && midiStatus !== "unsupported" && (
             <button onClick={onConnectMidi} disabled={midiStatus === "requesting"}>
               Kết nối đàn MIDI
             </button>
           )}
-          {midiError && <span className="practice-controls__error">{midiError}</span>}
 
-          <label className="player-controls__toggle" title="Phát âm thanh qua loa máy tính khi bấm phím đàn MIDI - hữu ích nếu đàn không có loa riêng">
-            <input
-              type="checkbox"
-              checked={playMidiAudio}
-              onChange={(e) => onPlayMidiAudioChange(e.target.checked)}
-            />
+          <label
+            className="player-controls__toggle"
+            title="Phát âm thanh qua loa máy tính khi bấm phím đàn MIDI - hữu ích nếu đàn không có loa riêng"
+          >
+            <input type="checkbox" checked={playMidiAudio} onChange={(e) => onPlayMidiAudioChange(e.target.checked)} />
             Phát âm thanh qua máy tính
           </label>
+
+          {canSelectHand && (
+            <select
+              className="practice-controls__hand-select"
+              aria-label="Chọn tay luyện tập"
+              value={practiceHand}
+              onChange={(e) => onPracticeHandChange(e.target.value as PracticeHand)}
+            >
+              {HAND_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          )}
         </div>
       )}
     </div>

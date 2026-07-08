@@ -4,6 +4,7 @@ import { prepareScoreXml, type ChordSource } from "../lib/chordDetector";
 import { parseInitialKey, describeTransposedKey, type KeyInfo } from "../lib/keySignature";
 import { renderNoteNameLabels, clearNoteNameLabels } from "../lib/noteNameLabels";
 import { attachNoteClickHandlers } from "../lib/noteInteraction";
+import { detectStaffRoles, type StaffRoles } from "../lib/staffRoles";
 
 const MAX_TRANSPOSE_SEMITONES = 12;
 
@@ -18,6 +19,7 @@ export function useOsmd(containerRef: React.RefObject<HTMLDivElement | null>, on
   const [fileName, setFileName] = useState<string | null>(null);
   const [showChordSymbols, setShowChordSymbolsState] = useState(true);
   const [showNoteNames, setShowNoteNamesState] = useState(false);
+  const [staffRoles, setStaffRoles] = useState<StaffRoles | null>(null);
 
   const onNoteClickRef = useRef(onNoteClick);
   useEffect(() => {
@@ -72,6 +74,7 @@ export function useOsmd(containerRef: React.RefObject<HTMLDivElement | null>, on
         osmd.cursor.show();
         refreshInteractionLayer(showNoteNames);
         setKeyInfo(parseInitialKey(prepared.xml));
+        setStaffRoles(detectStaffRoles(prepared.xml));
         setSemitones(0);
         setChordSource(prepared.chordSource);
         setFileName(file.name);
@@ -150,6 +153,7 @@ export function useOsmd(containerRef: React.RefObject<HTMLDivElement | null>, on
     setShowChordSymbols,
     showNoteNames,
     setShowNoteNames,
+    staffRoles,
     loadFile,
     transpose,
     reset,

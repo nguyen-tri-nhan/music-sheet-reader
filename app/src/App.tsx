@@ -38,6 +38,7 @@ function App() {
     setShowChordSymbols,
     showNoteNames,
     setShowNoteNames,
+    staffRoles,
     loadFile,
     transpose,
     reset,
@@ -50,10 +51,20 @@ function App() {
   }, [seekTo]);
 
   const [practiceModeEnabled, setPracticeModeEnabled] = useState(false);
-  const { midiStatus, midiError, connectMidi, resetForManualSeek, playMidiAudio, setPlayMidiAudio } = usePracticeMode({
+  const {
+    midiStatus,
+    midiError,
+    connectMidi,
+    resetForManualSeek,
+    playMidiAudio,
+    setPlayMidiAudio,
+    practiceHand,
+    setPracticeHand,
+  } = usePracticeMode({
     osmdRef,
     containerRef,
     enabled: practiceModeEnabled,
+    staffRoles,
   });
 
   useEffect(() => {
@@ -115,6 +126,9 @@ function App() {
           onConnectMidi={connectMidi}
           playMidiAudio={playMidiAudio}
           onPlayMidiAudioChange={setPlayMidiAudio}
+          practiceHand={practiceHand}
+          onPracticeHandChange={setPracticeHand}
+          canSelectHand={!!staffRoles && !staffRoles.singleStaff}
           onOpenNewFile={handleOpenNewFile}
           disabled={!hasScore}
         />

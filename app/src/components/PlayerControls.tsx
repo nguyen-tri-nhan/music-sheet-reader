@@ -1,4 +1,5 @@
 import type { MidiConnectionStatus } from "../hooks/useMidiInput";
+import type { PracticeHand } from "../hooks/usePracticeMode";
 import { PracticeModeControls } from "./PracticeModeControls";
 
 interface PlayerControlsProps {
@@ -23,6 +24,9 @@ interface PlayerControlsProps {
   onConnectMidi: () => void;
   playMidiAudio: boolean;
   onPlayMidiAudioChange: (value: boolean) => void;
+  practiceHand: PracticeHand;
+  onPracticeHandChange: (value: PracticeHand) => void;
+  canSelectHand: boolean;
   onOpenNewFile: () => void;
   disabled: boolean;
 }
@@ -52,6 +56,9 @@ export function PlayerControls({
   onConnectMidi,
   playMidiAudio,
   onPlayMidiAudioChange,
+  practiceHand,
+  onPracticeHandChange,
+  canSelectHand,
   onOpenNewFile,
   disabled,
 }: PlayerControlsProps) {
@@ -139,6 +146,9 @@ export function PlayerControls({
         onConnectMidi={onConnectMidi}
         playMidiAudio={playMidiAudio}
         onPlayMidiAudioChange={onPlayMidiAudioChange}
+        practiceHand={practiceHand}
+        onPracticeHandChange={onPracticeHandChange}
+        canSelectHand={canSelectHand}
         disabled={disabled}
       />
 
