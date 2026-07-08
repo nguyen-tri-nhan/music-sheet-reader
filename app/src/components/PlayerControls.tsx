@@ -1,3 +1,6 @@
+import type { MidiConnectionStatus } from "../hooks/useMidiInput";
+import { PracticeModeControls } from "./PracticeModeControls";
+
 interface PlayerControlsProps {
   isPlaying: boolean;
   isLoadingSampler: boolean;
@@ -13,6 +16,13 @@ interface PlayerControlsProps {
   onShowChordSymbolsChange: (value: boolean) => void;
   showNoteNames: boolean;
   onShowNoteNamesChange: (value: boolean) => void;
+  practiceModeEnabled: boolean;
+  onPracticeModeChange: (value: boolean) => void;
+  midiStatus: MidiConnectionStatus;
+  midiError: string | null;
+  onConnectMidi: () => void;
+  playMidiAudio: boolean;
+  onPlayMidiAudioChange: (value: boolean) => void;
   onOpenNewFile: () => void;
   disabled: boolean;
 }
@@ -35,17 +45,27 @@ export function PlayerControls({
   onShowChordSymbolsChange,
   showNoteNames,
   onShowNoteNamesChange,
+  practiceModeEnabled,
+  onPracticeModeChange,
+  midiStatus,
+  midiError,
+  onConnectMidi,
+  playMidiAudio,
+  onPlayMidiAudioChange,
   onOpenNewFile,
   disabled,
 }: PlayerControlsProps) {
   const clampBpm = (value: number) => Math.max(MIN_BPM, Math.min(MAX_BPM, value));
+  // Practice Mode dùng đàn MIDI làm nguồn nhịp - tắt hẳn Play/BPM tự động (Tone.Transport)
+  // trong lúc bật, tránh 2 nguồn điều khiển cursor giẫm lên nhau.
+  const playbackDisabled = disabled || practiceModeEnabled;
 
   return (
     <div className="player-controls">
       <button
         className="player-controls__play"
         onClick={onPlayPause}
-        disabled={disabled || isLoadingSampler}
+        disabled={playbackDisabled || isLoadingSampler}
         title={isPlaying ? "Tạm dừng" : "Phát"}
       >
         {isLoadingSampler ? "…" : isPlaying ? "❚❚" : "▶"}
@@ -72,7 +92,7 @@ export function PlayerControls({
 
       <div className="player-controls__group">
         <span className="player-controls__label">BPM</span>
-        <button disabled={disabled} onClick={() => onBpmChange(clampBpm(bpm - 5))}>
+        <button disabled={playbackDisabled} onClick={() => onBpmChange(clampBpm(bpm - 5))}>
           −
         </button>
         <input
@@ -81,10 +101,10 @@ export function PlayerControls({
           min={MIN_BPM}
           max={MAX_BPM}
           value={bpm}
-          disabled={disabled}
+          disabled={playbackDisabled}
           onChange={(e) => onBpmChange(clampBpm(Number(e.target.value) || bpm))}
         />
-        <button disabled={disabled} onClick={() => onBpmChange(clampBpm(bpm + 5))}>
+        <button disabled={playbackDisabled} onClick={() => onBpmChange(clampBpm(bpm + 5))}>
           +
         </button>
       </div>
@@ -110,6 +130,17 @@ export function PlayerControls({
         />
         Hiện tên nốt
       </label>
+
+      <PracticeModeControls
+        enabled={practiceModeEnabled}
+        onToggle={onPracticeModeChange}
+        midiStatus={midiStatus}
+        midiError={midiError}
+        onConnectMidi={onConnectMidi}
+        playMidiAudio={playMidiAudio}
+        onPlayMidiAudioChange={onPlayMidiAudioChange}
+        disabled={disabled}
+      />
 
       <button className="player-controls__new-file" onClick={onOpenNewFile}>
         Đổi file khác

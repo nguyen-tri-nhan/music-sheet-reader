@@ -158,6 +158,45 @@ body {
   margin-left: auto;
 }
 
+.practice-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.practice-controls__status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.practice-controls__badge {
+  padding: 3px 9px;
+  border-radius: 999px;
+  white-space: nowrap;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--toolbar-text);
+}
+
+.practice-controls__badge--connected {
+  background: rgba(46, 204, 113, 0.2);
+  color: #2ecc71;
+}
+
+.practice-controls__badge--unsupported,
+.practice-controls__badge--denied,
+.practice-controls__badge--error {
+  background: rgba(224, 82, 74, 0.2);
+  color: #e0524a;
+}
+
+.practice-controls__error {
+  color: #e0524a;
+  font-size: 12px;
+}
+
 /* Dropzone */
 .dropzone {
   width: 100%;

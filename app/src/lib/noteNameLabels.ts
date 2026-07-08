@@ -1,5 +1,6 @@
 import { NoteType, Pitch } from "opensheetmusicdisplay";
 import type { OpenSheetMusicDisplay } from "opensheetmusicdisplay";
+import type { OsmdNoteLike } from "./graphicalNoteTypes";
 
 const LABEL_GROUP_ID = "note-name-labels-overlay";
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -13,18 +14,6 @@ const FILLED_NOTEHEAD_TEXT_COLOR = "#ffffff";
 const FILLED_NOTEHEAD_HALO_COLOR = "#000000";
 const OPEN_NOTEHEAD_TEXT_COLOR = "#000000";
 const OPEN_NOTEHEAD_HALO_COLOR = "#ffffff";
-
-interface NoteheadCapable {
-  sourceNote: {
-    isRest(): boolean;
-    Pitch: Pitch;
-    TransposedPitch?: Pitch;
-    NoteTypeXml: NoteType;
-  };
-  /** Chỉ số của nốt này trong hợp âm (VexFlow StaveNote dùng chung 1 nhóm SVG cho cả hợp âm). */
-  vfnoteIndex: number;
-  getNoteheadSVGs?: () => SVGGraphicsElement[];
-}
 
 export function clearNoteNameLabels(container: HTMLElement): void {
   container.querySelector(`#${LABEL_GROUP_ID}`)?.remove();
@@ -49,7 +38,7 @@ export function renderNoteNameLabels(osmd: OpenSheetMusicDisplay, container: HTM
       if (!measure) continue;
       for (const staffEntry of measure.staffEntries) {
         for (const voiceEntry of staffEntry.graphicalVoiceEntries) {
-          for (const graphicalNote of voiceEntry.notes as unknown as NoteheadCapable[]) {
+          for (const graphicalNote of voiceEntry.notes as unknown as OsmdNoteLike[]) {
             appendLabelForNote(group, graphicalNote);
           }
         }
@@ -58,7 +47,7 @@ export function renderNoteNameLabels(osmd: OpenSheetMusicDisplay, container: HTM
   }
 }
 
-function appendLabelForNote(group: SVGGElement, graphicalNote: NoteheadCapable): void {
+function appendLabelForNote(group: SVGGElement, graphicalNote: OsmdNoteLike): void {
   const sourceNote = graphicalNote.sourceNote;
   if (!sourceNote || sourceNote.isRest()) return;
 

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useOsmd } from "./hooks/useOsmd";
 import { usePlayback } from "./hooks/usePlayback";
+import { usePracticeMode } from "./hooks/usePracticeMode";
 import { FileDropzone } from "./components/FileDropzone";
 import { PlayerControls } from "./components/PlayerControls";
 import { ScoreViewer } from "./components/ScoreViewer";
@@ -10,11 +11,16 @@ function App() {
   const containerRef = useRef<HTMLDivElement>(null);
   const [bpm, setBpm] = useState(100);
 
-  // usePlayback cần osmdRef (do useOsmd tạo ra), nhưng useOsmd cần 1 callback để báo khi
-  // người dùng bấm vào 1 nốt, và callback đó gọi seekTo của usePlayback -> dùng 1 ref trung
-  // gian để phá vòng phụ thuộc giữa 2 hook mà không phải gộp chúng làm một.
+  // usePlayback/usePracticeMode cần osmdRef (do useOsmd tạo ra), nhưng useOsmd cần 1 callback để
+  // báo khi người dùng bấm vào 1 nốt, và callback đó lại cần gọi seekTo/resetForManualSeek của 2
+  // hook kia -> dùng ref trung gian để phá vòng phụ thuộc mà không phải gộp các hook làm một.
   const seekToRef = useRef<(timestampRealValue: number) => void>(() => {});
+  const resetForManualSeekRef = useRef<() => void>(() => {});
   const handleNoteClick = useCallback((timestampRealValue: number) => {
+    // Bấm vào 1 nốt để cursor nhảy tới đó vẫn phải hoạt động bình thường dù đang ở Practice Mode
+    // hay không - nếu đang có lần đánh MIDI dở dang / feedback cũ đang hiện, phải hủy trước khi
+    // cursor nhảy vị trí, tránh so khớp nhầm nốt cũ với vị trí mới.
+    resetForManualSeekRef.current();
     seekToRef.current(timestampRealValue);
   }, []);
 
@@ -43,6 +49,17 @@ function App() {
     seekToRef.current = seekTo;
   }, [seekTo]);
 
+  const [practiceModeEnabled, setPracticeModeEnabled] = useState(false);
+  const { midiStatus, midiError, connectMidi, resetForManualSeek, playMidiAudio, setPlayMidiAudio } = usePracticeMode({
+    osmdRef,
+    containerRef,
+    enabled: practiceModeEnabled,
+  });
+
+  useEffect(() => {
+    resetForManualSeekRef.current = resetForManualSeek;
+  }, [resetForManualSeek]);
+
   const handleFileSelected = useCallback(
     (file: File) => {
       pause();
@@ -59,8 +76,17 @@ function App() {
     }
   }, [isPlaying, pause, play]);
 
+  const handlePracticeModeChange = useCallback(
+    (value: boolean) => {
+      setPracticeModeEnabled(value);
+      if (value) pause(); // Practice Mode dùng đàn MIDI làm nguồn nhịp, không phát tự động nữa.
+    },
+    [pause],
+  );
+
   const handleOpenNewFile = useCallback(() => {
     pause();
+    setPracticeModeEnabled(false);
     reset();
   }, [pause, reset]);
 
@@ -82,6 +108,13 @@ function App() {
           onShowChordSymbolsChange={setShowChordSymbols}
           showNoteNames={showNoteNames}
           onShowNoteNamesChange={setShowNoteNames}
+          practiceModeEnabled={practiceModeEnabled}
+          onPracticeModeChange={handlePracticeModeChange}
+          midiStatus={midiStatus}
+          midiError={midiError}
+          onConnectMidi={connectMidi}
+          playMidiAudio={playMidiAudio}
+          onPlayMidiAudioChange={setPlayMidiAudio}
           onOpenNewFile={handleOpenNewFile}
           disabled={!hasScore}
         />

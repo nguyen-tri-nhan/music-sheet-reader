@@ -1,12 +1,6 @@
 import { MusicPartManagerIterator } from "opensheetmusicdisplay";
 import type { OpenSheetMusicDisplay } from "opensheetmusicdisplay";
-
-interface ClickableGraphicalNote {
-  sourceNote: { isRest(): boolean };
-  /** Chỉ số của nốt này trong hợp âm (VexFlow StaveNote dùng chung 1 nhóm SVG cho cả hợp âm). */
-  vfnoteIndex: number;
-  getNoteheadSVGs?: () => SVGGraphicsElement[];
-}
+import type { OsmdNoteLike } from "./graphicalNoteTypes";
 
 /** Gắn click handler vào từng notehead đã render, để bấm vào 1 nốt sẽ báo lại đúng
  * thời điểm (whole-note timestamp) của nốt đó, dùng để di chuyển cursor tới đó.
@@ -31,7 +25,7 @@ export function attachNoteClickHandlers(osmd: OpenSheetMusicDisplay, onNoteClick
     for (const voiceEntry of iterator.CurrentVoiceEntries) {
       for (const note of voiceEntry.Notes) {
         if (note.isRest()) continue;
-        const graphicalNote = rules.GNote(note) as unknown as ClickableGraphicalNote | undefined;
+        const graphicalNote = rules.GNote(note) as unknown as OsmdNoteLike | undefined;
         // getNoteheadSVGs() trả về TẤT CẢ notehead của cả hợp âm dùng chung StaveNote - phải lấy
         // đúng phần tử ở vfnoteIndex, không thì mỗi nốt trong hợp âm sẽ gắn listener trùng lặp lên
         // cả các notehead khác (dù không sai chức năng ở đây vì cùng timestamp, nhưng thừa và dễ lỗi).
