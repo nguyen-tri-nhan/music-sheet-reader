@@ -37,9 +37,11 @@ const TYPE_TO_DISPLAY: Record<string, { suffix: string; kind: string }> = {
   "minor ninth": { suffix: "m9", kind: "minor-ninth" },
 };
 
-/** Đọc file user upload (.mxl/.xml), nếu file đã có sẵn <harmony> thì giữ nguyên;
+/** Đọc file user upload (.mxl/.xml), nếu file đã có sẵn <harmony> thì giữ nguyên phần hợp âm;
  * nếu không, tự phân tích hợp âm từ các nốt ở khóa Fa (theo từng ô nhịp) và chèn
- * <harmony> tương ứng vào MusicXML để OSMD tự vẽ + tự transpose cùng bản nhạc. */
+ * <harmony> tương ứng vào MusicXML để OSMD tự vẽ + tự transpose cùng bản nhạc.
+ * Ngoài ra luôn dọn dẹp text bị lỗi export (vd "To Coda" hiện literal <font>/<sym> tag) dù
+ * file đã có harmony hay chưa. */
 export async function prepareScoreXml(file: File): Promise<PreparedScore> {
   const rawXml = await readScoreFile(file);
   const doc = new DOMParser().parseFromString(rawXml, "application/xml");
@@ -48,17 +50,59 @@ export async function prepareScoreXml(file: File): Promise<PreparedScore> {
     throw new Error("Không đọc được nội dung MusicXML từ file này.");
   }
 
-  if (doc.getElementsByTagName("harmony").length > 0) {
-    return { xml: rawXml, chordSource: "existing" };
+  const textSanitized = sanitizeMalformedWordsText(doc);
+  const hasHarmony = doc.getElementsByTagName("harmony").length > 0;
+
+  if (hasHarmony) {
+    return { xml: textSanitized ? new XMLSerializer().serializeToString(doc) : rawXml, chordSource: "existing" };
   }
 
   const injectedCount = injectDetectedHarmony(doc);
   if (injectedCount === 0) {
-    return { xml: rawXml, chordSource: "none" };
+    return { xml: textSanitized ? new XMLSerializer().serializeToString(doc) : rawXml, chordSource: "none" };
   }
 
   const serialized = new XMLSerializer().serializeToString(doc);
   return { xml: serialized, chordSource: "detected" };
+}
+
+/** Tên hiển thị cho các <sym> hay gặp trong text bị lỗi export (MuseScore đôi khi xuất chỉ dẫn
+ * "To Coda"/"D.S. al Coda" thành text thô chứa literal "<font ...></font><sym>coda</sym>" thay vì
+ * dùng đúng ký hiệu, khiến OSMD vẽ ra nguyên chuỗi đó thay vì tên gọi dễ đọc. */
+const SYM_DISPLAY_NAMES: Record<string, string> = {
+  coda: "Coda",
+  segno: "Segno",
+  repeat: "Repeat",
+};
+
+/** Dọn các <words>/<credit-words> có literal "<font ...>"/"</font>"/"<sym>...</sym>" lẫn trong text
+ * (đây là text thật, không phải markup thật - do lỗi export nên mới bị escape thành entity rồi hiện
+ * ra y nguyên). Trả về true nếu có sửa gì đó, để biết có cần serialize lại XML hay không. */
+function sanitizeMalformedWordsText(doc: Document): boolean {
+  let changed = false;
+  const elements = [...Array.from(doc.getElementsByTagName("words")), ...Array.from(doc.getElementsByTagName("credit-words"))];
+
+  for (const el of elements) {
+    const original = el.textContent ?? "";
+    if (!original.includes("<")) continue;
+
+    const cleaned = original
+      .replace(/<font[^>]*>/gi, "")
+      .replace(/<\/font>/gi, "")
+      .replace(/<sym>([a-zA-Z-]+)<\/sym>/gi, (_match, name: string) => {
+        const key = name.toLowerCase();
+        return SYM_DISPLAY_NAMES[key] ?? name.charAt(0).toUpperCase() + name.slice(1);
+      })
+      .replace(/\s+/g, " ")
+      .trim();
+
+    if (cleaned !== original) {
+      el.textContent = cleaned;
+      changed = true;
+    }
+  }
+
+  return changed;
 }
 
 interface Bucket {

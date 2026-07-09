@@ -19,6 +19,12 @@ export function attachNoteClickHandlers(osmd: OpenSheetMusicDisplay, onNoteClick
 
   const rules = osmd.EngravingRules;
   const iterator = new MusicPartManagerIterator(osmd.Sheet);
+  // Nếu bản nhạc có lặp lại (segno/coda/D.C...), iterator này sẽ đi qua cùng 1 ô nhịp nhiều lần,
+  // nhưng notehead SVG tương ứng chỉ được OSMD vẽ ra 1 lần trên trang. Không dedupe thì mỗi lượt
+  // đi qua sẽ gắn thêm 1 listener lên CÙNG 1 phần tử - khi bấm, tất cả listener đó cùng chạy (theo
+  // đúng thứ tự đã gắn), và listener gắn SAU CÙNG (ứng với lượt lặp lại) luôn "thắng", khiến bấm
+  // vào 1 nốt ở đoạn lặp lại luôn nhảy tới thời điểm của lượt lặp thay vì lượt đầu tiên như mong đợi.
+  const attachedElements = new Set<SVGElement>();
 
   while (!iterator.EndReached) {
     const timestamp = iterator.currentTimeStamp.RealValue;
@@ -30,7 +36,8 @@ export function attachNoteClickHandlers(osmd: OpenSheetMusicDisplay, onNoteClick
         // đúng phần tử ở vfnoteIndex, không thì mỗi nốt trong hợp âm sẽ gắn listener trùng lặp lên
         // cả các notehead khác (dù không sai chức năng ở đây vì cùng timestamp, nhưng thừa và dễ lỗi).
         const el = graphicalNote?.getNoteheadSVGs?.()?.[graphicalNote.vfnoteIndex];
-        if (!el) continue;
+        if (!el || attachedElements.has(el)) continue;
+        attachedElements.add(el);
         el.style.cursor = "pointer";
         el.addEventListener("click", () => onNoteClick(timestamp));
       }
