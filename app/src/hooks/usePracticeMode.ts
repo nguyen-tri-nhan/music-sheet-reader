@@ -3,7 +3,7 @@ import * as Tone from "tone";
 import type { OpenSheetMusicDisplay } from "opensheetmusicdisplay";
 import { useMidiInput } from "./useMidiInput";
 import { midiNoteToFrequency, matchPlayedNotes } from "../lib/practiceMatcher";
-import { showNoteFeedback, clearNoteFeedback } from "../lib/noteFeedback";
+import { showNoteFeedback, clearNoteFeedback, type FeedbackState } from "../lib/noteFeedback";
 import { createPianoSampler } from "../lib/pianoSampler";
 import type { OsmdNoteLike } from "../lib/graphicalNoteTypes";
 import type { StaffRoles } from "../lib/staffRoles";
@@ -16,6 +16,9 @@ const CORRECT_DISPLAY_MS = 250;
 /** Độ trễ giữa mỗi bước tự động bỏ qua vị trí không có nốt của tay đang chọn - vẫn hiện cursor
  * trôi qua để người học cảm nhận được nhịp của cả bài, không nhảy thẳng tức thì. */
 const SKIP_STEP_DELAY_MS = 220;
+/** Thời gian tự tắt highlight phím ảo sau khi so khớp xong, nếu người chơi chưa kịp nhả phím. */
+const PLAYED_KEY_CORRECT_CLEAR_MS = 300;
+const PLAYED_KEY_INCORRECT_CLEAR_MS = 500;
 
 export type PracticeHand = "both" | "left" | "right";
 
@@ -33,6 +36,51 @@ export function usePracticeMode({ osmdRef, containerRef, enabled, staffRoles }: 
   const skipTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [practiceHand, setPracticeHandState] = useState<PracticeHand>("both");
+
+  // Trạng thái các phím (số MIDI) đang được nhấn thật, để tô sáng trên bàn phím ảo - độc lập với
+  // overlay trên khuông nhạc (notehead giữ đỏ tới khi sửa đúng; bàn phím ảo phản ánh phím ĐANG
+  // được nhấn theo thời gian thực nên tự tắt khi nhả phím hoặc sau 1 khoảng ngắn).
+  const [playedKeyStates, setPlayedKeyStates] = useState<Map<number, FeedbackState>>(new Map());
+  const keyStateTimersRef = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
+
+  const setKeyState = useCallback((noteNumber: number, state: FeedbackState, autoClearMs?: number) => {
+    const existingTimer = keyStateTimersRef.current.get(noteNumber);
+    if (existingTimer) clearTimeout(existingTimer);
+    keyStateTimersRef.current.delete(noteNumber);
+
+    setPlayedKeyStates((prev) => {
+      const next = new Map(prev);
+      next.set(noteNumber, state);
+      return next;
+    });
+
+    if (autoClearMs !== undefined) {
+      const timer = setTimeout(() => {
+        keyStateTimersRef.current.delete(noteNumber);
+        setPlayedKeyStates((prev) => {
+          if (!prev.has(noteNumber)) return prev;
+          const next = new Map(prev);
+          next.delete(noteNumber);
+          return next;
+        });
+      }, autoClearMs);
+      keyStateTimersRef.current.set(noteNumber, timer);
+    }
+  }, []);
+
+  const clearKeyState = useCallback((noteNumber: number) => {
+    const existingTimer = keyStateTimersRef.current.get(noteNumber);
+    if (existingTimer) {
+      clearTimeout(existingTimer);
+      keyStateTimersRef.current.delete(noteNumber);
+    }
+    setPlayedKeyStates((prev) => {
+      if (!prev.has(noteNumber)) return prev;
+      const next = new Map(prev);
+      next.delete(noteNumber);
+      return next;
+    });
+  }, []);
 
   // Phát âm thanh piano qua loa máy tính khi bấm phím đàn MIDI - hữu ích cho đàn MIDI-only
   // (controller) không có loa riêng. Tắt mặc định vì nhiều đàn digital piano đã tự phát âm thanh
@@ -128,6 +176,7 @@ export function usePracticeMode({ osmdRef, containerRef, enabled, staffRoles }: 
 
     if (result === "correct") {
       showNoteFeedback(container, expectedNotes, "correct");
+      for (const noteNumber of played) setKeyState(noteNumber, "correct", PLAYED_KEY_CORRECT_CLEAR_MS);
       advanceTimerRef.current = setTimeout(() => {
         clearNoteFeedback(container);
         osmd.cursor.next();
@@ -136,8 +185,9 @@ export function usePracticeMode({ osmdRef, containerRef, enabled, staffRoles }: 
       }, CORRECT_DISPLAY_MS);
     } else {
       showNoteFeedback(container, expectedNotes, "incorrect");
+      for (const noteNumber of played) setKeyState(noteNumber, "incorrect", PLAYED_KEY_INCORRECT_CLEAR_MS);
     }
-  }, [osmdRef, containerRef, getExpectedNotes, expectedFrequenciesOf, advanceUntilHandHasNotes]);
+  }, [osmdRef, containerRef, getExpectedNotes, expectedFrequenciesOf, advanceUntilHandHasNotes, setKeyState]);
 
   const handleNoteOn = useCallback(
     (noteNumber: number, velocity: number) => {
@@ -157,15 +207,20 @@ export function usePracticeMode({ osmdRef, containerRef, enabled, staffRoles }: 
       if (container) {
         showNoteFeedback(container, getExpectedNotes(), "listening");
       }
+      setKeyState(noteNumber, "listening");
       bufferRef.current.add(noteNumber);
       if (collectTimerRef.current) clearTimeout(collectTimerRef.current);
       collectTimerRef.current = setTimeout(evaluate, COLLECTION_WINDOW_MS);
     },
-    [enabled, playMidiAudio, containerRef, getExpectedNotes, evaluate],
+    [enabled, playMidiAudio, containerRef, getExpectedNotes, evaluate, setKeyState],
   );
 
   const handleNoteOff = useCallback(
     (noteNumber: number) => {
+      // Tắt highlight phím ảo ngay khi nhả phím thật - phản ánh đúng trạng thái vật lý real-time,
+      // độc lập với việc có bật phát âm thanh qua máy tính (playMidiAudio) hay không.
+      clearKeyState(noteNumber);
+
       if (!playMidiAudio || !midiSamplerRef.current) return;
       if (sustainPedalDownRef.current) {
         // Pedal đang giữ - hoãn release, chỉ đánh dấu để nhả khi pedal thả ra.
@@ -174,7 +229,7 @@ export function usePracticeMode({ osmdRef, containerRef, enabled, staffRoles }: 
       }
       midiSamplerRef.current.triggerRelease(midiNoteToFrequency(noteNumber), Tone.immediate());
     },
-    [playMidiAudio],
+    [playMidiAudio, clearKeyState],
   );
 
   const handleSustainPedal = useCallback(
@@ -215,6 +270,9 @@ export function usePracticeMode({ osmdRef, containerRef, enabled, staffRoles }: 
     resetForManualSeek();
     sustainPedalDownRef.current = false;
     sustainingNotesRef.current.clear();
+    for (const timer of keyStateTimersRef.current.values()) clearTimeout(timer);
+    keyStateTimersRef.current.clear();
+    setPlayedKeyStates(new Map());
   }, [enabled, resetForManualSeek]);
 
   // Bật Practice Mode hoặc đổi tay đang luyện tập: đảm bảo cursor đang đứng ở vị trí có nốt của
@@ -225,10 +283,12 @@ export function usePracticeMode({ osmdRef, containerRef, enabled, staffRoles }: 
   }, [enabled, practiceHand, advanceUntilHandHasNotes]);
 
   useEffect(() => {
+    const keyStateTimers = keyStateTimersRef.current;
     return () => {
       if (collectTimerRef.current) clearTimeout(collectTimerRef.current);
       if (advanceTimerRef.current) clearTimeout(advanceTimerRef.current);
       if (skipTimerRef.current) clearTimeout(skipTimerRef.current);
+      for (const timer of keyStateTimers.values()) clearTimeout(timer);
       midiSamplerRef.current?.dispose();
     };
   }, []);
@@ -241,6 +301,7 @@ export function usePracticeMode({ osmdRef, containerRef, enabled, staffRoles }: 
     resetForManualSeek,
     playMidiAudio,
     setPlayMidiAudio,
+    playedKeyStates,
     practiceHand,
     setPracticeHand,
   };

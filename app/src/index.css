@@ -42,6 +42,10 @@ body {
   gap: 12px;
 }
 
+.app__main--with-keyboard {
+  padding-bottom: 132px;
+}
+
 .app__meta {
   width: 100%;
   max-width: 900px;
@@ -240,4 +244,95 @@ body {
   border-radius: 4px;
   overflow-x: auto;
   min-height: 1px;
+}
+
+/* Virtual piano keyboard */
+.virtual-keyboard {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 108px;
+  padding-top: 6px;
+  background: linear-gradient(to bottom, #0e0f13, #1b1c22 12px);
+  box-shadow: 0 -6px 16px rgba(0, 0, 0, 0.35);
+  z-index: 20;
+}
+
+.virtual-keyboard__white-row {
+  position: relative;
+  display: flex;
+  width: 100%;
+  height: 100%;
+}
+
+.virtual-keyboard__black-row {
+  position: absolute;
+  top: 6px;
+  left: 0;
+  right: 0;
+  height: 58%;
+  pointer-events: none;
+}
+
+.virtual-keyboard__key {
+  box-sizing: border-box;
+  transition: background 120ms ease, box-shadow 120ms ease;
+}
+
+.virtual-keyboard__key--white {
+  height: 100%;
+  background: linear-gradient(to bottom, #ffffff 0%, #f8f8f4 82%, #e9e9e1 100%);
+  border: 1px solid #cfcfc6;
+  border-top: none;
+  border-radius: 0 0 5px 5px;
+  box-shadow: inset 0 -4px 5px -3px rgba(0, 0, 0, 0.18);
+  position: relative;
+}
+
+.virtual-keyboard__label {
+  position: absolute;
+  bottom: 6px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 10px;
+  font-weight: 600;
+  color: #8a8a82;
+  pointer-events: none;
+  user-select: none;
+}
+
+.virtual-keyboard__key--black {
+  position: absolute;
+  height: 100%;
+  background: linear-gradient(to bottom, #4a4a4a 0%, #17171a 55%, #000000 100%);
+  border: 1px solid #000;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 0 0 4px 4px;
+  box-shadow: 0 3px 4px rgba(0, 0, 0, 0.5), inset 0 -3px 3px rgba(0, 0, 0, 0.6);
+  pointer-events: auto;
+  z-index: 1;
+}
+
+.virtual-keyboard__key--expected.virtual-keyboard__key--white {
+  background: linear-gradient(to bottom, #e2f0ff 0%, #cfe4ff 82%, #b9d6fb 100%);
+}
+
+.virtual-keyboard__key--expected.virtual-keyboard__key--black {
+  background: linear-gradient(to bottom, #4a7bb5 0%, #2a4d7a 55%, #1a3559 100%);
+}
+
+.virtual-keyboard__key--listening {
+  background: #4a9eff !important;
+  box-shadow: 0 0 8px rgba(74, 158, 255, 0.6) !important;
+}
+
+.virtual-keyboard__key--correct {
+  background: #2ecc71 !important;
+  box-shadow: 0 0 8px rgba(46, 204, 113, 0.6) !important;
+}
+
+.virtual-keyboard__key--incorrect {
+  background: #e0524a !important;
+  box-shadow: 0 0 8px rgba(224, 82, 74, 0.6) !important;
 }

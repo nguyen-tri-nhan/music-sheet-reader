@@ -2,9 +2,12 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useOsmd } from "./hooks/useOsmd";
 import { usePlayback } from "./hooks/usePlayback";
 import { usePracticeMode } from "./hooks/usePracticeMode";
+import { useCursorHighlightedNotes } from "./hooks/useCursorHighlightedNotes";
 import { FileDropzone } from "./components/FileDropzone";
 import { PlayerControls } from "./components/PlayerControls";
 import { ScoreViewer } from "./components/ScoreViewer";
+import { VirtualPianoKeyboard } from "./components/VirtualPianoKeyboard";
+import { FULL_PIANO_RANGE } from "./lib/pitchToMidi";
 import "./index.css";
 
 function App() {
@@ -45,6 +48,8 @@ function App() {
   } = useOsmd(containerRef, handleNoteClick);
 
   const { isPlaying, isLoadingSampler, play, pause, seekTo } = usePlayback(osmdRef, bpm);
+  const [showVirtualKeyboard, setShowVirtualKeyboard] = useState(true);
+  const expectedMidiNotes = useCursorHighlightedNotes(osmdRef);
 
   useEffect(() => {
     seekToRef.current = seekTo;
@@ -60,6 +65,7 @@ function App() {
     setPlayMidiAudio,
     practiceHand,
     setPracticeHand,
+    playedKeyStates,
   } = usePracticeMode({
     osmdRef,
     containerRef,
@@ -129,12 +135,14 @@ function App() {
           practiceHand={practiceHand}
           onPracticeHandChange={setPracticeHand}
           canSelectHand={!!staffRoles && !staffRoles.singleStaff}
+          showVirtualKeyboard={showVirtualKeyboard}
+          onShowVirtualKeyboardChange={setShowVirtualKeyboard}
           onOpenNewFile={handleOpenNewFile}
           disabled={!hasScore}
         />
       )}
 
-      <main className="app__main">
+      <main className={`app__main${hasScore && showVirtualKeyboard ? " app__main--with-keyboard" : ""}`}>
         {!hasScore && <FileDropzone onFileSelected={handleFileSelected} />}
 
         {error && !hasScore && <div className="app__error">{error}</div>}
@@ -147,6 +155,15 @@ function App() {
 
         <ScoreViewer containerRef={containerRef} isLoading={isLoading} error={hasScore ? error : null} />
       </main>
+
+      {hasScore && showVirtualKeyboard && (
+        <VirtualPianoKeyboard
+          minMidiNote={FULL_PIANO_RANGE.minMidiNote}
+          maxMidiNote={FULL_PIANO_RANGE.maxMidiNote}
+          expectedMidiNotes={expectedMidiNotes}
+          playedKeyStates={playedKeyStates}
+        />
+      )}
     </div>
   );
 }

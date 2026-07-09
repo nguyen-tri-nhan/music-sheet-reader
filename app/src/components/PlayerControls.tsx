@@ -27,6 +27,8 @@ interface PlayerControlsProps {
   practiceHand: PracticeHand;
   onPracticeHandChange: (value: PracticeHand) => void;
   canSelectHand: boolean;
+  showVirtualKeyboard: boolean;
+  onShowVirtualKeyboardChange: (value: boolean) => void;
   onOpenNewFile: () => void;
   disabled: boolean;
 }
@@ -59,6 +61,8 @@ export function PlayerControls({
   practiceHand,
   onPracticeHandChange,
   canSelectHand,
+  showVirtualKeyboard,
+  onShowVirtualKeyboardChange,
   onOpenNewFile,
   disabled,
 }: PlayerControlsProps) {
@@ -136,6 +140,16 @@ export function PlayerControls({
           onChange={(e) => onShowNoteNamesChange(e.target.checked)}
         />
         Hiện tên nốt
+      </label>
+
+      <label className="player-controls__toggle">
+        <input
+          type="checkbox"
+          checked={showVirtualKeyboard}
+          disabled={disabled}
+          onChange={(e) => onShowVirtualKeyboardChange(e.target.checked)}
+        />
+        Hiện bàn phím ảo
       </label>
 
       <PracticeModeControls
