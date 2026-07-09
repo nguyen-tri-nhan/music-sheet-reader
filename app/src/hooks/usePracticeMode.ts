@@ -146,7 +146,11 @@ export function usePracticeMode({ osmdRef, containerRef, enabled, staffRoles }: 
       if (playMidiAudio && midiSamplerRef.current) {
         // Bấm lại 1 nốt đang ngân do pedal giữ - coi như 1 lần đánh mới, không cần release riêng nữa.
         sustainingNotesRef.current.delete(noteNumber);
-        midiSamplerRef.current.triggerAttack(midiNoteToFrequency(noteNumber), Tone.now(), velocity / 127);
+        // Dùng Tone.immediate() thay vì Tone.now() - Tone.now() cộng thêm "lookAhead" mặc định
+        // 0.1s (100ms) để đảm bảo lịch phát nhạc mượt cho nhạc ĐÃ LÊN LỊCH TRƯỚC (Tone.Transport ở
+        // usePlayback.ts), nhưng với input real-time từ phím đàn thì 100ms đó là độ trễ cố định,
+        // nghe rõ ràng bị hụt hẫng so với tiếng loa thật của đàn. immediate() bỏ qua lookAhead này.
+        midiSamplerRef.current.triggerAttack(midiNoteToFrequency(noteNumber), Tone.immediate(), velocity / 127);
       }
 
       const container = containerRef.current;
@@ -168,7 +172,7 @@ export function usePracticeMode({ osmdRef, containerRef, enabled, staffRoles }: 
         sustainingNotesRef.current.add(noteNumber);
         return;
       }
-      midiSamplerRef.current.triggerRelease(midiNoteToFrequency(noteNumber));
+      midiSamplerRef.current.triggerRelease(midiNoteToFrequency(noteNumber), Tone.immediate());
     },
     [playMidiAudio],
   );
@@ -180,7 +184,7 @@ export function usePracticeMode({ osmdRef, containerRef, enabled, staffRoles }: 
       // Pedal vừa thả ra - release toàn bộ các nốt đã nhả phím nhưng bị pedal giữ ngân trước đó.
       const sampler = midiSamplerRef.current;
       for (const noteNumber of sustainingNotesRef.current) {
-        sampler.triggerRelease(midiNoteToFrequency(noteNumber));
+        sampler.triggerRelease(midiNoteToFrequency(noteNumber), Tone.immediate());
       }
       sustainingNotesRef.current.clear();
     },
