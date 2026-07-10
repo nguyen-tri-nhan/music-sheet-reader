@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { OpenSheetMusicDisplay, TransposeCalculator } from "opensheetmusicdisplay";
 import { prepareScoreXml, type ChordSource } from "../lib/chordDetector";
-import { parseInitialKey, describeTransposedKey, type KeyInfo } from "../lib/keySignature";
+import { readCurrentKeyLabel } from "../lib/keySignature";
 import { renderNoteNameLabels, clearNoteNameLabels } from "../lib/noteNameLabels";
 import { attachNoteClickHandlers } from "../lib/noteInteraction";
 import { detectStaffRoles, type StaffRoles } from "../lib/staffRoles";
@@ -15,7 +15,7 @@ export function useOsmd(containerRef: React.RefObject<HTMLDivElement | null>, on
   const [hasScore, setHasScore] = useState(false);
   const [chordSource, setChordSource] = useState<ChordSource | null>(null);
   const [semitones, setSemitones] = useState(0);
-  const [keyInfo, setKeyInfo] = useState<KeyInfo | null>(null);
+  const [currentKeyLabel, setCurrentKeyLabel] = useState<string | null>(null);
   const [fileName, setFileName] = useState<string | null>(null);
   const [showChordSymbols, setShowChordSymbolsState] = useState(true);
   const [showNoteNames, setShowNoteNamesState] = useState(false);
@@ -73,7 +73,7 @@ export function useOsmd(containerRef: React.RefObject<HTMLDivElement | null>, on
         osmd.cursor.reset();
         osmd.cursor.show();
         refreshInteractionLayer(showNoteNames);
-        setKeyInfo(parseInitialKey(prepared.xml));
+        setCurrentKeyLabel(readCurrentKeyLabel(osmd));
         setStaffRoles(detectStaffRoles(prepared.xml));
         setSemitones(0);
         setChordSource(prepared.chordSource);
@@ -100,6 +100,7 @@ export function useOsmd(containerRef: React.RefObject<HTMLDivElement | null>, on
       osmd.cursor.show();
       refreshInteractionLayer(showNoteNames);
       setSemitones(clamped);
+      setCurrentKeyLabel(readCurrentKeyLabel(osmd));
     },
     [showNoteNames, refreshInteractionLayer],
   );
@@ -135,7 +136,6 @@ export function useOsmd(containerRef: React.RefObject<HTMLDivElement | null>, on
     setError(null);
   }, []);
 
-  const currentKeyLabel = keyInfo ? describeTransposedKey(keyInfo, semitones) : null;
   const hasChords = chordSource === "existing" || chordSource === "detected";
 
   return {

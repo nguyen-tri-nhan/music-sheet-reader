@@ -2,23 +2,37 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import * as Tone from "tone";
 import type { OpenSheetMusicDisplay } from "opensheetmusicdisplay";
 import { useMidiInput } from "./useMidiInput";
-import { midiNoteToFrequency, matchPlayedNotes } from "../lib/practiceMatcher";
+import { midiNoteToFrequency, matchIncremental } from "../lib/practiceMatcher";
 import { showNoteFeedback, clearNoteFeedback, type FeedbackState } from "../lib/noteFeedback";
 import { createPianoSampler } from "../lib/pianoSampler";
+import { moveCursorToTimestamp } from "../lib/cursorNavigation";
 import type { OsmdNoteLike } from "../lib/graphicalNoteTypes";
 import type { StaffRoles } from "../lib/staffRoles";
 
-/** Gom các Note On đến trong cửa sổ này thành 1 "lần đánh" trước khi so khớp - đủ để chờ đánh
- * đầy đủ 1 hợp âm, cũng tự nhiên đóng vai trò bộ đệm chống báo sai giả (xem specs/keyboard.md). */
+/** Thời gian tối đa chờ gom đủ hợp âm trước khi kết luận THIẾU nốt = sai - tính CỐ ĐỊNH từ nốt
+ * ĐẦU TIÊN của lần thử (không reset lại mỗi nốt mới tới như debounce trước đây). Lý do đổi: debounce
+ * reset-mỗi-nốt khiến đánh nhanh nhiều nốt đơn liên tiếp (nhanh hơn khoảng này) bị dồn chung vào 1
+ * lần so khớp, luôn tính sai vì thừa nốt - đã verify đây là bug thật gây ra "đánh nhanh app không
+ * bắt kịp, báo sai" (xem phân tích trong hội thoại). Với cách so khớp incremental mới (mỗi nốt tới
+ * kiểm tra ngay), hằng số này CHỈ còn ý nghĩa "chờ bao lâu cho 1 hợp âm nhiều nốt gom đủ", không còn
+ * quyết định việc phát hiện đánh nhanh nữa. */
 const COLLECTION_WINDOW_MS = 220;
-/** Thời gian hiện chớp xanh lá trước khi thực sự chuyển cursor sang nốt tiếp theo. */
-const CORRECT_DISPLAY_MS = 250;
+/** Giới hạn số bước dò lùi/tiến khi tìm ô nhịp hoặc nốt kế tiếp - chặn vòng lặp vô hạn ở các trường
+ * hợp biên (đầu/cuối bài, hoặc tay đang chọn nghỉ dài). */
+const MAX_REWIND_PROBE_STEPS = 500;
+const MAX_NEXT_PEEK_STEPS = 100;
+/** Số lần tối đa cho phép "nhảy cóc" sang vị trí sau khi phát hiện đánh nhanh (xem `processNote`) -
+ * chặn đệ quy vô hạn trong trường hợp lý thuyết hiếm gặp (nhiều vị trí liên tiếp trùng cao độ). */
+const MAX_REROUTE_HOPS = 3;
 /** Độ trễ giữa mỗi bước tự động bỏ qua vị trí không có nốt của tay đang chọn - vẫn hiện cursor
  * trôi qua để người học cảm nhận được nhịp của cả bài, không nhảy thẳng tức thì. */
 const SKIP_STEP_DELAY_MS = 220;
 /** Thời gian tự tắt highlight phím ảo sau khi so khớp xong, nếu người chơi chưa kịp nhả phím. */
 const PLAYED_KEY_CORRECT_CLEAR_MS = 300;
 const PLAYED_KEY_INCORRECT_CLEAR_MS = 500;
+/** Chế độ khó: đợi 1 chút sau khi hiện đỏ rồi mới tự lùi cursor về đầu ô nhịp - đủ để người chơi
+ * kịp thấy vừa sai (không giật mình), không quá lâu gây cảm giác trễ. */
+const STRICT_MODE_REWIND_DELAY_MS = 500;
 
 export type PracticeHand = "both" | "left" | "right";
 
@@ -30,12 +44,13 @@ interface UsePracticeModeOptions {
 }
 
 export function usePracticeMode({ osmdRef, containerRef, enabled, staffRoles }: UsePracticeModeOptions) {
-  const bufferRef = useRef<Set<number>>(new Set());
-  const collectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const advanceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingNotesRef = useRef<Set<number>>(new Set());
+  const deadlineTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const skipTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const strictRewindTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [practiceHand, setPracticeHandState] = useState<PracticeHand>("both");
+  const [strictMode, setStrictModeState] = useState(false);
 
   // Trạng thái các phím (số MIDI) đang được nhấn thật, để tô sáng trên bàn phím ảo - độc lập với
   // overlay trên khuông nhạc (notehead giữ đỏ tới khi sửa đúng; bàn phím ảo phản ánh phím ĐANG
@@ -128,13 +143,58 @@ export function usePracticeMode({ osmdRef, containerRef, enabled, staffRoles }: 
     return notes;
   }, [osmdRef, practiceHand, staffRoles]);
 
+  const expectedFrequenciesOf = useCallback((notes: OsmdNoteLike[]): number[] => {
+    return notes
+      .map((gn) => gn.sourceNote.TransposedPitch ?? gn.sourceNote.Pitch)
+      .filter((pitch): pitch is NonNullable<typeof pitch> => !!pitch)
+      .map((pitch) => pitch.Frequency);
+  }, []);
+
+  /** Dò 1 bước KẾ TIẾP (tính theo tay đang chọn - bỏ qua các bước tay kia đang chơi mà tay này
+   * nghỉ, giống `advanceUntilHandHasNotes`) để biết tần số các nốt SẼ được mong đợi tiếp theo.
+   * Dùng bản clone của cursor thật (không đụng cursor thật) - để phát hiện trường hợp người chơi
+   * đánh nhanh, đã sang tới nốt kế tiếp trước khi cursor kịp nhích (xem `processNote`). Chỉ cần
+   * tần số để so khớp, không cần vẽ overlay nên không cần GraphicalNote/SVG. */
+  const getNextExpectedFrequencies = useCallback((): number[] => {
+    const osmd = osmdRef.current;
+    if (!osmd?.Sheet) return [];
+    const iterator = osmd.cursor.iterator.clone();
+
+    for (let step = 0; step < MAX_NEXT_PEEK_STEPS; step++) {
+      if (iterator.EndReached) return [];
+      iterator.moveToNext();
+      if (iterator.EndReached) return [];
+
+      let notes = iterator.CurrentVoiceEntries.flatMap((voiceEntry) => voiceEntry.Notes).filter((n) => !n.isRest());
+      if (practiceHand !== "both" && staffRoles && !staffRoles.singleStaff) {
+        const targetStaffId = practiceHand === "left" ? staffRoles.bassStaffId : staffRoles.trebleStaffId;
+        notes = notes.filter((n) => n.ParentStaffEntry?.ParentStaff?.Id === targetStaffId);
+      }
+      if (notes.length === 0) continue;
+
+      return notes
+        .map((n) => n.TransposedPitch ?? n.Pitch)
+        .filter((p): p is NonNullable<typeof p> => !!p)
+        .map((p) => p.Frequency);
+    }
+    return [];
+  }, [osmdRef, practiceHand, staffRoles]);
+
   /** Tay đang chọn không có nốt nào ở vị trí hiện tại (tay kia đang chơi) - tự động cho cursor
    * chạy qua (có độ trễ để vẫn cảm nhận được nhịp) tới khi tìm được vị trí có nốt của tay đó,
    * hoặc hết bài. Gọi sau: bật Practice Mode, đổi tay, sau khi advance tới nốt tiếp theo, và sau
-   * khi bấm chọn 1 nốt (click-to-seek) - luôn đảm bảo cursor dừng đúng ở nơi có gì để so khớp. */
+   * khi bấm chọn 1 nốt (click-to-seek) - luôn đảm bảo cursor dừng đúng ở nơi có gì để so khớp.
+   *
+   * Bắt buộc phải bail ngay nếu Practice Mode đang TẮT (`enabled === false`): `resetForManualSeek`
+   * (chạy trên MỌI lần click-to-seek, kể cả khi đang ở Listen Mode, và cả lúc tắt Practice Mode)
+   * luôn gọi hàm này vô điều kiện - nếu không chặn theo `enabled`, việc chọn tay ("tay phải" chẳng
+   * hạn) từ trước đó sẽ khiến cursor tự chạy tìm nốt treble ngay cả khi không còn ở Practice Mode
+   * nữa, và mọi click-to-seek tiếp theo lại tự khởi động lại vòng lặp này - không cách nào dừng
+   * được bằng thao tác thường (đúng bug đã gặp: chuyển từ Practice sang Listen, chọn tay phải,
+   * cursor tự chạy qua các ô đầu không có nốt treble mà không dừng lại). */
   const advanceUntilHandHasNotes = useCallback(() => {
     if (skipTimerRef.current) clearTimeout(skipTimerRef.current);
-    if (practiceHand === "both" || !staffRoles || staffRoles.singleStaff) return;
+    if (!enabled || practiceHand === "both" || !staffRoles || staffRoles.singleStaff) return;
     const osmd = osmdRef.current;
     if (!osmd?.Sheet) return;
 
@@ -146,7 +206,7 @@ export function usePracticeMode({ osmdRef, containerRef, enabled, staffRoles }: 
       skipTimerRef.current = setTimeout(step, SKIP_STEP_DELAY_MS);
     };
     step();
-  }, [osmdRef, practiceHand, staffRoles, getExpectedNotes]);
+  }, [enabled, osmdRef, practiceHand, staffRoles, getExpectedNotes]);
 
   const setPracticeHand = useCallback(
     (value: PracticeHand) => {
@@ -155,39 +215,192 @@ export function usePracticeMode({ osmdRef, containerRef, enabled, staffRoles }: 
     [],
   );
 
-  const expectedFrequenciesOf = useCallback((notes: OsmdNoteLike[]): number[] => {
-    return notes
-      .map((gn) => gn.sourceNote.TransposedPitch ?? gn.sourceNote.Pitch)
-      .filter((pitch): pitch is NonNullable<typeof pitch> => !!pitch)
-      .map((pitch) => pitch.Frequency);
+  const setStrictMode = useCallback((value: boolean) => {
+    if (!value && strictRewindTimerRef.current) {
+      clearTimeout(strictRewindTimerRef.current);
+      strictRewindTimerRef.current = null;
+    }
+    setStrictModeState(value);
   }, []);
 
-  const evaluate = useCallback(() => {
+  /** Chế độ khó: đánh sai -> lùi cursor về đúng điểm bắt đầu ô nhịp ĐANG ĐỨNG (không phải lần đầu
+   * tiên xuất hiện ô nhịp đó trong bài). Dò lùi CỤC BỘ bằng 1 bản clone của chính cursor thật
+   * (`osmd.cursor.iterator.clone()`) thay vì quét lại từ đầu bài bằng measureIndex/timestamp - vì
+   * bản nhạc có lặp lại (segno/coda/D.C...) khiến timestamp của 1 ô nhịp LẶP LẠI giống hệt ở mỗi
+   * lượt (đã verify khi fix bug cursor lặp lại trước đó: đo bằng OSMD thật, ô nhịp 20 cho cùng
+   * RealValue=18.5 ở cả 2 lượt) - quét từ đầu bài không thể phân biệt được đang ở lượt nào. Dò lùi
+   * cục bộ từ vị trí cursor thật (vốn đã đứng đúng lượt) tránh hẳn vấn đề này.
+   *
+   * Có 1 điều cần lưu ý (đã verify bằng OSMD thật): `moveToPrevious()` không set `EndReached` khi
+   * lùi quá điểm bắt đầu bản nhạc - nó "đứng khựng" lại với timestamp âm (-1) mãi mãi thay vì báo
+   * hết bài, nên phải tự chặn (kiểm tra timestamp âm/không đổi) để tránh vòng lặp vô hạn. */
+  const rewindToMeasureStart = useCallback(() => {
     const osmd = osmdRef.current;
-    const container = containerRef.current;
-    const played = Array.from(bufferRef.current);
-    bufferRef.current.clear();
-    if (!osmd?.Sheet || !container || played.length === 0) return;
+    if (!osmd?.Sheet) return;
+    const probe = osmd.cursor.iterator.clone();
+    const targetMeasureIndex = probe.CurrentMeasureIndex;
+    let measureStartTimestamp = probe.currentTimeStamp.RealValue;
 
-    const expectedNotes = getExpectedNotes();
-    const expectedFrequencies = expectedFrequenciesOf(expectedNotes);
-    const playedFrequencies = played.map(midiNoteToFrequency);
-    const result = matchPlayedNotes(playedFrequencies, expectedFrequencies);
-
-    if (result === "correct") {
-      showNoteFeedback(container, expectedNotes, "correct");
-      for (const noteNumber of played) setKeyState(noteNumber, "correct", PLAYED_KEY_CORRECT_CLEAR_MS);
-      advanceTimerRef.current = setTimeout(() => {
-        clearNoteFeedback(container);
-        osmd.cursor.next();
-        osmd.cursor.show();
-        advanceUntilHandHasNotes();
-      }, CORRECT_DISPLAY_MS);
-    } else {
-      showNoteFeedback(container, expectedNotes, "incorrect");
-      for (const noteNumber of played) setKeyState(noteNumber, "incorrect", PLAYED_KEY_INCORRECT_CLEAR_MS);
+    for (let i = 0; i < MAX_REWIND_PROBE_STEPS; i++) {
+      if (probe.EndReached) break;
+      const beforeTimestamp = probe.currentTimeStamp.RealValue;
+      probe.moveToPrevious();
+      const afterTimestamp = probe.currentTimeStamp.RealValue;
+      if (
+        probe.EndReached ||
+        afterTimestamp < 0 ||
+        afterTimestamp === beforeTimestamp ||
+        probe.CurrentMeasureIndex !== targetMeasureIndex
+      ) {
+        break;
+      }
+      measureStartTimestamp = afterTimestamp;
     }
-  }, [osmdRef, containerRef, getExpectedNotes, expectedFrequenciesOf, advanceUntilHandHasNotes, setKeyState]);
+
+    moveCursorToTimestamp(osmd, measureStartTimestamp);
+    advanceUntilHandHasNotes();
+  }, [osmdRef, advanceUntilHandHasNotes]);
+
+  /** Đánh ĐÚNG (đủ, khớp chính xác tập nốt mong đợi) - chuyển cursor NGAY LẬP TỨC, không còn chờ
+   * 1 khoảng hiển thị xanh trước khi advance như bản cũ. Lý do đổi: khoảng chờ đó (trước đây
+   * CORRECT_DISPLAY_MS=250ms) chỉ nhằm mục đích thẩm mỹ (cho thấy chớp xanh trước khi cursor rời
+   * đi) - nhưng chính khoảng chờ này lại là 1 nguồn gây ra bug "đánh nhanh báo sai": nốt kế tiếp
+   * đến trong lúc chờ vẫn bị so khớp với vị trí CŨ (đã xong nhưng cursor chưa kịp nhích). Chớp xanh
+   * vẫn hiện được bình thường vì overlay là 1 phần tử SVG cố định tại vị trí notehead CŨ, tự fade
+   * qua CSS transition độc lập với việc cursor đã chuyển đi hay chưa (xem `noteFeedback.ts`). */
+  const resolveCorrect = useCallback(
+    (expectedNotes: OsmdNoteLike[], playedNotes: number[]) => {
+      const osmd = osmdRef.current;
+      const container = containerRef.current;
+      if (!osmd?.Sheet || !container) return;
+
+      // Nếu vừa sai (đã lên lịch lùi về đầu ô nhịp) nhưng sửa đúng kịp trước khi lệnh lùi đó chạy -
+      // phải hủy nó đi, không thì cursor vừa đi tới sẽ bị kéo ngược lại dù người chơi vừa đánh đúng.
+      if (strictRewindTimerRef.current) {
+        clearTimeout(strictRewindTimerRef.current);
+        strictRewindTimerRef.current = null;
+      }
+      showNoteFeedback(container, expectedNotes, "correct");
+      for (const noteNumber of playedNotes) setKeyState(noteNumber, "correct", PLAYED_KEY_CORRECT_CLEAR_MS);
+
+      pendingNotesRef.current.clear();
+      osmd.cursor.next();
+      osmd.cursor.show();
+      advanceUntilHandHasNotes();
+    },
+    [osmdRef, containerRef, setKeyState, advanceUntilHandHasNotes],
+  );
+
+  const resolveWrong = useCallback(
+    (expectedNotes: OsmdNoteLike[], playedNotes: number[]) => {
+      const container = containerRef.current;
+      if (!container) return;
+
+      showNoteFeedback(container, expectedNotes, "incorrect");
+      for (const noteNumber of playedNotes) setKeyState(noteNumber, "incorrect", PLAYED_KEY_INCORRECT_CLEAR_MS);
+      pendingNotesRef.current.clear();
+
+      if (strictMode) {
+        if (strictRewindTimerRef.current) clearTimeout(strictRewindTimerRef.current);
+        strictRewindTimerRef.current = setTimeout(() => {
+          strictRewindTimerRef.current = null;
+          clearNoteFeedback(container);
+          rewindToMeasureStart();
+        }, STRICT_MODE_REWIND_DELAY_MS);
+      }
+    },
+    [containerRef, setKeyState, strictMode, rewindToMeasureStart],
+  );
+
+  /** So khớp NGAY khi từng nốt tới (không còn đợi hết cửa sổ gom mới so khớp 1 lần) - xem
+   * `matchIncremental`. `hopsRemaining` chặn đệ quy vô hạn khi "nhảy cóc" sang vị trí sau (chỉ xảy
+   * ra khi đang ở đầu 1 lần thử mới - xem giải thích ở nhánh "wrong" bên dưới). */
+  const processNote = useCallback(
+    (noteNumber: number, hopsRemaining: number) => {
+      const osmd = osmdRef.current;
+      const container = containerRef.current;
+      if (!osmd?.Sheet || !container) return;
+
+      if (pendingNotesRef.current.size === 0) {
+        // Bắt đầu 1 lần thử mới - đặt deadline CỐ ĐỊNH tính từ nốt đầu tiên này, không reset lại
+        // mỗi khi có nốt mới tới nữa (khác hành vi debounce cũ) - chỉ dùng để kết luận SAI nếu
+        // hợp âm mãi không gom đủ, không còn ảnh hưởng tới tốc độ phát hiện đánh nhanh.
+        if (deadlineTimerRef.current) clearTimeout(deadlineTimerRef.current);
+        deadlineTimerRef.current = setTimeout(() => {
+          deadlineTimerRef.current = null;
+          if (pendingNotesRef.current.size === 0) return;
+          const expectedNotes = getExpectedNotes();
+          resolveWrong(expectedNotes, Array.from(pendingNotesRef.current));
+        }, COLLECTION_WINDOW_MS);
+      }
+
+      pendingNotesRef.current.add(noteNumber);
+      setKeyState(noteNumber, "listening");
+
+      const expectedNotes = getExpectedNotes();
+      const expectedFrequencies = expectedFrequenciesOf(expectedNotes);
+      const pendingFrequencies = Array.from(pendingNotesRef.current).map(midiNoteToFrequency);
+      const result = matchIncremental(pendingFrequencies, expectedFrequencies);
+
+      showNoteFeedback(container, expectedNotes, "listening");
+
+      if (result === "complete") {
+        if (deadlineTimerRef.current) {
+          clearTimeout(deadlineTimerRef.current);
+          deadlineTimerRef.current = null;
+        }
+        resolveCorrect(expectedNotes, Array.from(pendingNotesRef.current));
+        return;
+      }
+
+      if (result === "partial") {
+        // Vẫn đang gom hợp âm, mọi nốt tới giờ đều đúng - chờ thêm (nốt tiếp theo hoặc deadline).
+        return;
+      }
+
+      // "wrong": có nốt không thuộc tập mong đợi hiện tại. Nếu đây là NỐT ĐẦU TIÊN của lần thử này
+      // (chưa gom dở hợp âm nào) - kiểm tra xem có phải người chơi đã đánh NHANH, lỡ sang tới vị
+      // trí KẾ TIẾP trước khi cursor kịp nhích hay không (đúng bug đã gặp). Chỉ áp dụng khi
+      // pendingNotesRef mới chỉ có 1 nốt DUY NHẤT - tránh nhập nhằng với trường hợp đang gom dở 1
+      // hợp âm nhiều nốt rồi mới lệch (trường hợp đó vẫn giữ nguyên coi là sai, không tự suy đoán).
+      if (pendingNotesRef.current.size === 1 && hopsRemaining > 0) {
+        const nextExpectedFrequencies = getNextExpectedFrequencies();
+        const nextResult = matchIncremental([midiNoteToFrequency(noteNumber)], nextExpectedFrequencies);
+        if (nextResult !== "wrong" && nextExpectedFrequencies.length > 0) {
+          // Đúng là nốt của vị trí SAU - coi vị trí hiện tại (mà nốt này không thuộc về) đã qua,
+          // nhảy cursor luôn (không chấm sai/đúng gì cho vị trí cũ) rồi so khớp lại đúng nốt này
+          // cho vị trí MỚI.
+          if (deadlineTimerRef.current) {
+            clearTimeout(deadlineTimerRef.current);
+            deadlineTimerRef.current = null;
+          }
+          pendingNotesRef.current.clear();
+          osmd.cursor.next();
+          osmd.cursor.show();
+          advanceUntilHandHasNotes();
+          processNote(noteNumber, hopsRemaining - 1);
+          return;
+        }
+      }
+
+      if (deadlineTimerRef.current) {
+        clearTimeout(deadlineTimerRef.current);
+        deadlineTimerRef.current = null;
+      }
+      resolveWrong(expectedNotes, Array.from(pendingNotesRef.current));
+    },
+    [
+      osmdRef,
+      containerRef,
+      getExpectedNotes,
+      expectedFrequenciesOf,
+      getNextExpectedFrequencies,
+      setKeyState,
+      resolveCorrect,
+      resolveWrong,
+      advanceUntilHandHasNotes,
+    ],
+  );
 
   const handleNoteOn = useCallback(
     (noteNumber: number, velocity: number) => {
@@ -203,16 +416,9 @@ export function usePracticeMode({ osmdRef, containerRef, enabled, staffRoles }: 
         midiSamplerRef.current.triggerAttack(midiNoteToFrequency(noteNumber), Tone.immediate(), velocity / 127);
       }
 
-      const container = containerRef.current;
-      if (container) {
-        showNoteFeedback(container, getExpectedNotes(), "listening");
-      }
-      setKeyState(noteNumber, "listening");
-      bufferRef.current.add(noteNumber);
-      if (collectTimerRef.current) clearTimeout(collectTimerRef.current);
-      collectTimerRef.current = setTimeout(evaluate, COLLECTION_WINDOW_MS);
+      processNote(noteNumber, MAX_REROUTE_HOPS);
     },
-    [enabled, playMidiAudio, containerRef, getExpectedNotes, evaluate, setKeyState],
+    [enabled, playMidiAudio, processNote],
   );
 
   const handleNoteOff = useCallback(
@@ -253,9 +459,11 @@ export function usePracticeMode({ osmdRef, containerRef, enabled, staffRoles }: 
    * hiện (vd đỏ ở nốt vừa rời đi), nếu không lần đánh dở đó sẽ so khớp nhầm với nốt MỚI vừa nhảy
    * tới, và overlay cũ có thể còn sót lại ở vị trí không còn liên quan nữa. */
   const resetForManualSeek = useCallback(() => {
-    if (collectTimerRef.current) clearTimeout(collectTimerRef.current);
-    if (advanceTimerRef.current) clearTimeout(advanceTimerRef.current);
-    bufferRef.current.clear();
+    if (deadlineTimerRef.current) clearTimeout(deadlineTimerRef.current);
+    deadlineTimerRef.current = null;
+    if (strictRewindTimerRef.current) clearTimeout(strictRewindTimerRef.current);
+    strictRewindTimerRef.current = null;
+    pendingNotesRef.current.clear();
     const container = containerRef.current;
     if (container) clearNoteFeedback(container);
     // Chạy sau khi tick hiện tại (gồm cả seekTo di chuyển cursor) hoàn tất, để kiểm tra đúng vị trí
@@ -285,9 +493,9 @@ export function usePracticeMode({ osmdRef, containerRef, enabled, staffRoles }: 
   useEffect(() => {
     const keyStateTimers = keyStateTimersRef.current;
     return () => {
-      if (collectTimerRef.current) clearTimeout(collectTimerRef.current);
-      if (advanceTimerRef.current) clearTimeout(advanceTimerRef.current);
+      if (deadlineTimerRef.current) clearTimeout(deadlineTimerRef.current);
       if (skipTimerRef.current) clearTimeout(skipTimerRef.current);
+      if (strictRewindTimerRef.current) clearTimeout(strictRewindTimerRef.current);
       for (const timer of keyStateTimers.values()) clearTimeout(timer);
       midiSamplerRef.current?.dispose();
     };
@@ -304,5 +512,7 @@ export function usePracticeMode({ osmdRef, containerRef, enabled, staffRoles }: 
     playedKeyStates,
     practiceHand,
     setPracticeHand,
+    strictMode,
+    setStrictMode,
   };
 }

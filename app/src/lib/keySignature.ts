@@ -1,8 +1,4 @@
-export interface KeyInfo {
-  fifths: number;
-  mode: "major" | "minor";
-  tonicName: string;
-}
+import { KeyInstruction, KeyEnum, type OpenSheetMusicDisplay } from "opensheetmusicdisplay";
 
 const MAJOR_BY_FIFTHS: Record<number, string> = {
   "-7": "Cb", "-6": "Gb", "-5": "Db", "-4": "Ab", "-3": "Eb", "-2": "Bb", "-1": "F",
@@ -14,32 +10,21 @@ const MINOR_BY_FIFTHS: Record<number, string> = {
   "0": "A", "1": "E", "2": "B", "3": "F#", "4": "C#", "5": "G#", "6": "D#", "7": "A#",
 };
 
-const NOTE_NAMES_SHARP = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
-const NOTE_NAMES_FLAT = ["C", "Db", "D", "Eb", "E", "F", "Gb", "G", "Ab", "A", "Bb", "B"];
+/** Đọc tên giọng HIỆN TẠI trực tiếp từ OSMD (đúng cho cả trước/sau transpose), thay vì tự tính lại
+ * bằng cách dịch chromatic từ giọng gốc. Lý do đổi cách làm: tự dịch chromatic phải tự đoán nên
+ * dùng tên thăng hay giáng cho giọng đích - đã verify bằng OSMD thật là cách đoán cũ SAI khoảng
+ * 1/3 số trường hợp (vd D major +1 nửa cung ra "D# major" trong khi OSMD vẽ đúng là "Eb major" -
+ * 5 dấu giáng). OSMD's TransposeCalculator đã tự tính đúng key signature theo circle of fifths
+ * (chọn giọng có ít dấu hóa hơn khi có 2 cách viết tương đương) - chỉ cần đọc lại kết quả đó thay
+ * vì suy luận độc lập, tránh 2 nguồn có thể lệch nhau. */
+export function readCurrentKeyLabel(osmd: OpenSheetMusicDisplay): string | null {
+  const firstMeasure = osmd.Sheet?.SourceMeasures?.[0];
+  const instructions = firstMeasure?.FirstInstructionsStaffEntries?.[0]?.Instructions ?? [];
+  const keyInstruction = instructions.find((instr): instr is KeyInstruction => instr instanceof KeyInstruction);
+  if (!keyInstruction) return null;
 
-const NOTE_INDEX: Record<string, number> = {
-  C: 0, "C#": 1, Db: 1, D: 2, "D#": 3, Eb: 3, E: 4, F: 5, "F#": 6, Gb: 6,
-  G: 7, "G#": 8, Ab: 8, A: 9, "A#": 10, Bb: 10, B: 11, Cb: 11,
-};
-
-/** Đọc key signature ban đầu (số dấu hóa + trưởng/thứ) từ MusicXML thô. */
-export function parseInitialKey(xml: string): KeyInfo | null {
-  const doc = new DOMParser().parseFromString(xml, "application/xml");
-  const fifthsEl = doc.getElementsByTagName("fifths")[0];
-  if (!fifthsEl?.textContent) return null;
-
-  const fifths = parseInt(fifthsEl.textContent, 10);
-  const modeText = doc.getElementsByTagName("mode")[0]?.textContent?.trim().toLowerCase();
-  const mode: "major" | "minor" = modeText === "minor" ? "minor" : "major";
-  const table = mode === "minor" ? MINOR_BY_FIFTHS : MAJOR_BY_FIFTHS;
-  const tonicName = table[fifths] ?? "C";
-  return { fifths, mode, tonicName };
-}
-
-/** Tên giọng hiện tại sau khi transpose n nửa cung (chỉ để hiển thị UI, không dùng để render notation). */
-export function describeTransposedKey(key: KeyInfo, semitones: number): string {
-  const baseIndex = NOTE_INDEX[key.tonicName] ?? 0;
-  const names = key.fifths < 0 ? NOTE_NAMES_FLAT : NOTE_NAMES_SHARP;
-  const index = ((baseIndex + semitones) % 12 + 12) % 12;
-  return `${names[index]} ${key.mode}`;
+  const isMinor = keyInstruction.Mode === KeyEnum.minor;
+  const tonicName = (isMinor ? MINOR_BY_FIFTHS : MAJOR_BY_FIFTHS)[keyInstruction.Key];
+  if (!tonicName) return null;
+  return `${tonicName} ${isMinor ? "minor" : "major"}`;
 }

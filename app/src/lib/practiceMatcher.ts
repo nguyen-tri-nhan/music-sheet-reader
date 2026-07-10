@@ -24,3 +24,21 @@ export function matchPlayedNotes(playedFrequencies: number[], expectedFrequencie
   }
   return remaining.length === 0 ? "correct" : "incorrect";
 }
+
+export type IncrementalMatchResult = "complete" | "partial" | "wrong";
+
+/** So khớp DẦN từng nốt một khi đang gom hợp âm (thay vì chỉ so 1 lần sau khi hết giờ chờ):
+ * - "complete": mọi nốt mong đợi đã được đánh đủ, chính xác 1-1 - có thể kết luận NGAY, không cần
+ *   chờ hết thời gian gom nữa (nốt đơn sẽ luôn "complete" ngay từ nốt đầu tiên).
+ * - "partial": mọi nốt đã đánh đều thuộc tập mong đợi, nhưng CHƯA đủ - còn đang chờ thêm nốt hợp âm.
+ * - "wrong": có ít nhất 1 nốt đã đánh KHÔNG thuộc tập mong đợi (thừa/sai), kết luận sai ngay không
+ *   cần chờ thêm (đánh thừa nốt nào đó vẫn luôn tính sai bất kể các nốt còn lại đúng hay không). */
+export function matchIncremental(playedFrequencies: number[], expectedFrequencies: number[]): IncrementalMatchResult {
+  const remaining = [...expectedFrequencies];
+  for (const played of playedFrequencies) {
+    const idx = remaining.findIndex((f) => Math.abs(f - played) < MATCH_TOLERANCE_HZ);
+    if (idx === -1) return "wrong";
+    remaining.splice(idx, 1);
+  }
+  return remaining.length === 0 ? "complete" : "partial";
+}

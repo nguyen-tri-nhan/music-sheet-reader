@@ -1,5 +1,6 @@
 import type { MidiConnectionStatus } from "../hooks/useMidiInput";
 import type { PracticeHand } from "../hooks/usePracticeMode";
+import { DropdownMenu } from "./DropdownMenu";
 
 interface PracticeModeControlsProps {
   enabled: boolean;
@@ -12,6 +13,8 @@ interface PracticeModeControlsProps {
   practiceHand: PracticeHand;
   onPracticeHandChange: (value: PracticeHand) => void;
   canSelectHand: boolean;
+  strictMode: boolean;
+  onStrictModeChange: (value: boolean) => void;
   disabled: boolean;
 }
 
@@ -41,6 +44,8 @@ export function PracticeModeControls({
   practiceHand,
   onPracticeHandChange,
   canSelectHand,
+  strictMode,
+  onStrictModeChange,
   disabled,
 }: PracticeModeControlsProps) {
   const isConnected = midiStatus === "connected";
@@ -64,28 +69,41 @@ export function PracticeModeControls({
             </button>
           )}
 
-          <label
-            className="player-controls__toggle"
-            title="Phát âm thanh qua loa máy tính khi bấm phím đàn MIDI - hữu ích nếu đàn không có loa riêng"
-          >
-            <input type="checkbox" checked={playMidiAudio} onChange={(e) => onPlayMidiAudioChange(e.target.checked)} />
-            Phát âm thanh qua máy tính
-          </label>
-
-          {canSelectHand && (
-            <select
-              className="practice-controls__hand-select"
-              aria-label="Chọn tay luyện tập"
-              value={practiceHand}
-              onChange={(e) => onPracticeHandChange(e.target.value as PracticeHand)}
+          <DropdownMenu label="Cài đặt luyện tập">
+            <label
+              className="player-controls__toggle"
+              title="Phát âm thanh qua loa máy tính khi bấm phím đàn MIDI - hữu ích nếu đàn không có loa riêng"
             >
-              {HAND_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          )}
+              <input type="checkbox" checked={playMidiAudio} onChange={(e) => onPlayMidiAudioChange(e.target.checked)} />
+              Phát âm thanh qua máy tính
+            </label>
+
+            {canSelectHand && (
+              <label className="player-controls__toggle" title="Chọn tay luyện tập">
+                <span className="player-controls__label">Tay luyện tập</span>
+                <select
+                  className="practice-controls__hand-select"
+                  aria-label="Chọn tay luyện tập"
+                  value={practiceHand}
+                  onChange={(e) => onPracticeHandChange(e.target.value as PracticeHand)}
+                >
+                  {HAND_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+
+            <label
+              className="player-controls__toggle"
+              title="Đánh sai phải chơi lại từ đầu ô nhịp hiện tại, không chỉ sửa nốt vừa sai"
+            >
+              <input type="checkbox" checked={strictMode} onChange={(e) => onStrictModeChange(e.target.checked)} />
+              Chế độ khó
+            </label>
+          </DropdownMenu>
         </div>
       )}
     </div>

@@ -104,6 +104,12 @@ export function usePlayback(osmdRef: React.RefObject<OpenSheetMusicDisplay | nul
     Tone.Transport.stop();
     Tone.Transport.cancel(0);
     Tone.Transport.position = 0;
+    // Đặt Transport.bpm KHỚP với bpm dùng để tính giây bên dưới trước khi schedule() - Transport
+    // lưu mọi mốc schedule dưới dạng ticks (quy đổi từ giây SANG ticks bằng bpm TẠI THỜI ĐIỂM
+    // schedule() chạy), nên nếu 2 giá trị bpm này khác nhau, các lần đổi tempo sau này sẽ tính sai
+    // theo 1 hệ số lệch cố định. Khớp nhau ngay từ đầu thì đổi Transport.bpm sau này (xem effect
+    // theo dõi bpm bên dưới) sẽ tự động retime đúng mọi note/cursor đã lên lịch, không cần rebuild.
+    Tone.Transport.bpm.value = bpm;
 
     const schedule = buildScheduleFromCurrentPosition(osmd, bpm);
 
@@ -153,6 +159,15 @@ export function usePlayback(osmdRef: React.RefObject<OpenSheetMusicDisplay | nul
     },
     [osmdRef, playFromCurrentCursor],
   );
+
+  // Đổi BPM ngay trong lúc đang phát -> theo tempo mới ngay, không cần pause rồi play lại. Vì mọi
+  // note/cursor.next() đã lên lịch đều lưu dưới dạng ticks (không phải giây tuyệt đối - xem comment
+  // ở playFromCurrentCursor), chỉ cần đổi Transport.bpm là Tone.js tự retime đúng phần nhạc CHƯA
+  // phát, không ảnh hưởng phần đã phát qua. Dùng rampTo thay vì gán thẳng để tránh khựng đột ngột.
+  useEffect(() => {
+    if (!isPlayingRef.current) return;
+    Tone.Transport.bpm.rampTo(bpm, 0.1);
+  }, [bpm]);
 
   useEffect(() => {
     return () => {

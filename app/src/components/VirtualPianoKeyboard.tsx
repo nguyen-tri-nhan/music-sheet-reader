@@ -1,10 +1,12 @@
 import type { FeedbackState } from "../lib/noteFeedback";
+import type { HighlightedNote } from "../hooks/useCursorHighlightedNotes";
 
 interface VirtualPianoKeyboardProps {
   minMidiNote: number;
   maxMidiNote: number;
-  /** Nốt đang cần đánh tại vị trí cursor - luôn tô sáng nhẹ, không phụ thuộc MIDI. */
-  expectedMidiNotes: number[];
+  /** Nốt cần đánh tại/quanh vị trí cursor (tier 0 = ngay bây giờ, 1-3 = sắp tới), kèm tay trái/phải
+   * của từng nốt - luôn tô sáng nhẹ, không phụ thuộc MIDI. */
+  highlightedNotes: HighlightedNote[];
   /** Nốt đang thực sự được nhấn qua đàn MIDI, kèm trạng thái so khớp (tái dùng màu của noteFeedback.ts). */
   playedKeyStates: Map<number, FeedbackState>;
   /** Để ngỏ cho mở rộng sau (click phím ảo để tự chơi) - chưa dùng ở bản này. */
@@ -43,22 +45,46 @@ function buildKeyLayout(minMidiNote: number, maxMidiNote: number): KeyLayout {
   return { whiteKeys, blackKeys, whiteKeyCount: whiteKeys.length };
 }
 
+/** Nếu 1 nốt (hiếm khi, vd lặp cách quãng 8) xuất hiện ở nhiều tier cùng lúc, luôn ưu tiên hiện
+ * tier NHỎ NHẤT (gần/ngay bây giờ hơn) - đó mới là thông tin quan trọng hơn. */
+function buildHighlightLookup(highlightedNotes: HighlightedNote[]): Map<number, HighlightedNote> {
+  const lookup = new Map<number, HighlightedNote>();
+  for (const note of highlightedNotes) {
+    const existing = lookup.get(note.midi);
+    if (!existing || note.tier < existing.tier) {
+      lookup.set(note.midi, note);
+    }
+  }
+  return lookup;
+}
+
+const TIER_SUFFIX: Record<HighlightedNote["tier"], string> = {
+  0: "current",
+  1: "next1",
+  2: "next2",
+  3: "next3",
+};
+
 export function VirtualPianoKeyboard({
   minMidiNote,
   maxMidiNote,
-  expectedMidiNotes,
+  highlightedNotes,
   playedKeyStates,
   onKeyClick,
 }: VirtualPianoKeyboardProps) {
   const { whiteKeys, blackKeys, whiteKeyCount } = buildKeyLayout(minMidiNote, maxMidiNote);
-  const expectedSet = new Set(expectedMidiNotes);
+  const highlightLookup = buildHighlightLookup(highlightedNotes);
   const whiteKeyWidthPercent = 100 / Math.max(whiteKeyCount, 1);
   const blackKeyWidthPercent = whiteKeyWidthPercent * BLACK_KEY_WIDTH_RATIO;
 
   function keyStateClass(midi: number): string {
+    // Trạng thái đánh MIDI thật (đúng/sai/đang chờ) luôn ưu tiên hơn gợi ý tay/tier - đây là
+    // phản hồi về ĐỘ CHÍNH XÁC, quan trọng hơn thông tin "sắp tới, tay nào".
     const played = playedKeyStates.get(midi);
     if (played) return ` virtual-keyboard__key--${played}`;
-    if (expectedSet.has(midi)) return " virtual-keyboard__key--expected";
+
+    const highlight = highlightLookup.get(midi);
+    if (highlight) return ` virtual-keyboard__key--${highlight.hand}-${TIER_SUFFIX[highlight.tier]}`;
     return "";
   }
 

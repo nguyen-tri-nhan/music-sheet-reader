@@ -203,6 +203,40 @@ body {
   cursor: pointer;
 }
 
+/* Dropdown gom nhóm các toggle/tùy chọn phụ (vd "Hiển thị", "Cài đặt luyện tập") - tự viết bằng
+ * React + CSS thuần, không dùng thư viện UI ngoài (xem specs/keyboard.md lý do). */
+.dropdown-menu {
+  position: relative;
+  display: inline-flex;
+}
+
+.dropdown-menu__caret {
+  font-size: 9px;
+  margin-left: 4px;
+  color: #9ca3af;
+}
+
+.dropdown-menu__panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 240px;
+  background: var(--toolbar-bg);
+  border: 1px solid var(--toolbar-border);
+  border-radius: 8px;
+  padding: 12px 14px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
+  z-index: 30;
+}
+
+.dropdown-menu__panel .practice-controls__hand-select {
+  margin-left: 8px;
+}
+
 /* Dropzone */
 .dropzone {
   width: 100%;
@@ -314,12 +348,85 @@ body {
   z-index: 1;
 }
 
-.virtual-keyboard__key--expected.virtual-keyboard__key--white {
-  background: linear-gradient(to bottom, #e2f0ff 0%, #cfe4ff 82%, #b9d6fb 100%);
+/* Gợi ý nốt cần đánh trên bàn phím ảo: tier "current" = ngay bây giờ (đậm nhất), "next1/2/3" =
+ * sắp tới, càng xa càng nhạt dần. Màu theo tay: phải = xanh dương, trái = cam (cặp nóng/lạnh dễ
+ * phân biệt kể cả với người mù màu đỏ-lục dạng phổ biến nhất, không trùng đỏ/xanh lá đã dùng cho
+ * đúng/sai). "unknown" = không xác định được tay (bản nhạc 1 khuông) - giữ nguyên tông xanh trung
+ * tính đã dùng trước đây cho "expected" để không đổi giao diện các file không phải piano 2 tay. */
+
+.virtual-keyboard__key--right-current.virtual-keyboard__key--white {
+  background: linear-gradient(to bottom, #bcd9fc 0%, #86b4f2 55%, #4a90e2 100%);
+}
+.virtual-keyboard__key--right-current.virtual-keyboard__key--black {
+  background: linear-gradient(to bottom, #3d6fd6 0%, #2c4fa8 55%, #1c3570 100%);
+}
+.virtual-keyboard__key--right-next1.virtual-keyboard__key--white {
+  background: linear-gradient(to bottom, #d3e6fd 0%, #aecbf7 55%, #7fb1f5 100%);
+}
+.virtual-keyboard__key--right-next1.virtual-keyboard__key--black {
+  background: linear-gradient(to bottom, #35507e 0%, #2a3f66 55%, #1f304f 100%);
+}
+.virtual-keyboard__key--right-next2.virtual-keyboard__key--white {
+  background: linear-gradient(to bottom, #e3eefd 0%, #cbe1fb 55%, #a8cdf7 100%);
+}
+.virtual-keyboard__key--right-next2.virtual-keyboard__key--black {
+  background: linear-gradient(to bottom, #2c3a52 0%, #253244 55%, #1e2937 100%);
+}
+.virtual-keyboard__key--right-next3.virtual-keyboard__key--white {
+  background: linear-gradient(to bottom, #eef5fe 0%, #dfebfc 55%, #cbe1fb 100%);
+}
+.virtual-keyboard__key--right-next3.virtual-keyboard__key--black {
+  background: linear-gradient(to bottom, #25303f 0%, #212a37 55%, #1d2530 100%);
 }
 
-.virtual-keyboard__key--expected.virtual-keyboard__key--black {
+.virtual-keyboard__key--left-current.virtual-keyboard__key--white {
+  background: linear-gradient(to bottom, #ffd2a3 0%, #f5a856 55%, #e08a3c 100%);
+}
+.virtual-keyboard__key--left-current.virtual-keyboard__key--black {
+  background: linear-gradient(to bottom, #b5722f 0%, #8a5423 55%, #5f3818 100%);
+}
+.virtual-keyboard__key--left-next1.virtual-keyboard__key--white {
+  background: linear-gradient(to bottom, #ffe0bd 0%, #fcc182 55%, #f0a55c 100%);
+}
+.virtual-keyboard__key--left-next1.virtual-keyboard__key--black {
+  background: linear-gradient(to bottom, #7e5326 0%, #66421d 55%, #4f3115 100%);
+}
+.virtual-keyboard__key--left-next2.virtual-keyboard__key--white {
+  background: linear-gradient(to bottom, #ffecd6 0%, #ffd7ab 55%, #f7c088 100%);
+}
+.virtual-keyboard__key--left-next2.virtual-keyboard__key--black {
+  background: linear-gradient(to bottom, #523d24 0%, #443219 55%, #372711 100%);
+}
+.virtual-keyboard__key--left-next3.virtual-keyboard__key--white {
+  background: linear-gradient(to bottom, #fff4e7 0%, #ffe6c9 55%, #fcd7ac 100%);
+}
+.virtual-keyboard__key--left-next3.virtual-keyboard__key--black {
+  background: linear-gradient(to bottom, #3f3324 0%, #362b1c 55%, #2c2216 100%);
+}
+
+.virtual-keyboard__key--unknown-current.virtual-keyboard__key--white {
+  background: linear-gradient(to bottom, #b9d0ea 0%, #8fb0d9 55%, #5c85b8 100%);
+}
+.virtual-keyboard__key--unknown-current.virtual-keyboard__key--black {
   background: linear-gradient(to bottom, #4a7bb5 0%, #2a4d7a 55%, #1a3559 100%);
+}
+.virtual-keyboard__key--unknown-next1.virtual-keyboard__key--white {
+  background: linear-gradient(to bottom, #d0e0f2 0%, #b3c9e6 55%, #93aed4 100%);
+}
+.virtual-keyboard__key--unknown-next1.virtual-keyboard__key--black {
+  background: linear-gradient(to bottom, #3d6390 0%, #254063 55%, #17293f 100%);
+}
+.virtual-keyboard__key--unknown-next2.virtual-keyboard__key--white {
+  background: linear-gradient(to bottom, #e2edf8 0%, #d0e0f2 55%, #b9cee6 100%);
+}
+.virtual-keyboard__key--unknown-next2.virtual-keyboard__key--black {
+  background: linear-gradient(to bottom, #2f4f6b 0%, #1e3349 55%, #132131 100%);
+}
+.virtual-keyboard__key--unknown-next3.virtual-keyboard__key--white {
+  background: linear-gradient(to bottom, #eef4fb 0%, #e2edf8 55%, #d3e2f2 100%);
+}
+.virtual-keyboard__key--unknown-next3.virtual-keyboard__key--black {
+  background: linear-gradient(to bottom, #26374a 0%, #1a2735 55%, #111a24 100%);
 }
 
 .virtual-keyboard__key--listening {

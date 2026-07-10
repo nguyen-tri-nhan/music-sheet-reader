@@ -1,6 +1,7 @@
 import type { MidiConnectionStatus } from "../hooks/useMidiInput";
 import type { PracticeHand } from "../hooks/usePracticeMode";
 import { PracticeModeControls } from "./PracticeModeControls";
+import { DropdownMenu } from "./DropdownMenu";
 
 interface PlayerControlsProps {
   isPlaying: boolean;
@@ -27,8 +28,12 @@ interface PlayerControlsProps {
   practiceHand: PracticeHand;
   onPracticeHandChange: (value: PracticeHand) => void;
   canSelectHand: boolean;
+  strictMode: boolean;
+  onStrictModeChange: (value: boolean) => void;
   showVirtualKeyboard: boolean;
   onShowVirtualKeyboardChange: (value: boolean) => void;
+  showNoteHints: boolean;
+  onShowNoteHintsChange: (value: boolean) => void;
   onOpenNewFile: () => void;
   disabled: boolean;
 }
@@ -61,8 +66,12 @@ export function PlayerControls({
   practiceHand,
   onPracticeHandChange,
   canSelectHand,
+  strictMode,
+  onStrictModeChange,
   showVirtualKeyboard,
   onShowVirtualKeyboardChange,
+  showNoteHints,
+  onShowNoteHintsChange,
   onOpenNewFile,
   disabled,
 }: PlayerControlsProps) {
@@ -120,37 +129,54 @@ export function PlayerControls({
         </button>
       </div>
 
-      {hasChords && (
+      <DropdownMenu label="Hiển thị" disabled={disabled}>
+        {hasChords && (
+          <label className="player-controls__toggle">
+            <input
+              type="checkbox"
+              checked={showChordSymbols}
+              disabled={disabled}
+              onChange={(e) => onShowChordSymbolsChange(e.target.checked)}
+            />
+            Hiện hợp âm
+          </label>
+        )}
+
         <label className="player-controls__toggle">
           <input
             type="checkbox"
-            checked={showChordSymbols}
+            checked={showNoteNames}
             disabled={disabled}
-            onChange={(e) => onShowChordSymbolsChange(e.target.checked)}
+            onChange={(e) => onShowNoteNamesChange(e.target.checked)}
           />
-          Hiện hợp âm
+          Hiện tên nốt
         </label>
-      )}
 
-      <label className="player-controls__toggle">
-        <input
-          type="checkbox"
-          checked={showNoteNames}
-          disabled={disabled}
-          onChange={(e) => onShowNoteNamesChange(e.target.checked)}
-        />
-        Hiện tên nốt
-      </label>
+        <label className="player-controls__toggle">
+          <input
+            type="checkbox"
+            checked={showVirtualKeyboard}
+            disabled={disabled}
+            onChange={(e) => onShowVirtualKeyboardChange(e.target.checked)}
+          />
+          Hiện bàn phím ảo
+        </label>
 
-      <label className="player-controls__toggle">
-        <input
-          type="checkbox"
-          checked={showVirtualKeyboard}
-          disabled={disabled}
-          onChange={(e) => onShowVirtualKeyboardChange(e.target.checked)}
-        />
-        Hiện bàn phím ảo
-      </label>
+        {showVirtualKeyboard && (
+          <label
+            className="player-controls__toggle"
+            title="Tắt để tự luyện không cần gợi ý - bàn phím ảo vẫn hiện nốt bạn vừa đánh đúng/sai, chỉ không tô sáng trước nốt cần đánh nữa"
+          >
+            <input
+              type="checkbox"
+              checked={showNoteHints}
+              disabled={disabled}
+              onChange={(e) => onShowNoteHintsChange(e.target.checked)}
+            />
+            Gợi ý nốt cần đánh
+          </label>
+        )}
+      </DropdownMenu>
 
       <PracticeModeControls
         enabled={practiceModeEnabled}
@@ -163,6 +189,8 @@ export function PlayerControls({
         practiceHand={practiceHand}
         onPracticeHandChange={onPracticeHandChange}
         canSelectHand={canSelectHand}
+        strictMode={strictMode}
+        onStrictModeChange={onStrictModeChange}
         disabled={disabled}
       />
 
